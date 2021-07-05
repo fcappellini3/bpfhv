@@ -137,6 +137,8 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_tx_buf_dma_unmap,
 	BPFHV_FUNC_smp_mb_full,
 	BPFHV_FUNC_print_num,
+	BPFHV_FUNC_eth_data,
+	BPFHV_FUNC_eth_size
 };
 
 #ifndef BPFHV_FUNC

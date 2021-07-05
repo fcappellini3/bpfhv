@@ -719,6 +719,10 @@ bpfhv_tx_intr(int irq, void *data)
 
 #define GOOD_COPY_LEN	128
 
+/*
+ * BPF helper function
+*/
+
 BPF_CALL_1(bpf_hv_rx_pkt_alloc, struct bpfhv_rx_context *, ctx)
 {
 	struct bpfhv_rxq *rxq = RXQ_FROM_CTX(ctx);
@@ -914,8 +918,42 @@ BPF_CALL_0(bpf_hv_smp_mb_full)
 
 BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
 {
-    printk("%s: %lld\n", str, x);
+    printk(KERN_ERR "%s: %lld\n", str, x);
     return 0;
+}
+
+/*
+ * Additional BPF helper functions (IDS support)
+*/
+
+BPF_CALL_1(bpf_hv_eth_data, struct bpfhv_rx_context *, ctx)
+{
+	struct sk_buff *skb;
+	if(ctx == NULL) {
+		printk(KERN_ERR "bpf_hv_eth_data(...) -> ctx is null\n");
+		return 0;
+	}
+	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
+	if(skb == NULL) {
+		printk(KERN_ERR "bpf_hv_eth_data(...) -> skb is null\n");
+		return 0;
+	}
+	return (uintptr_t)skb->data;
+}
+
+BPF_CALL_1(bpf_hv_eth_size, struct bpfhv_rx_context *, ctx)
+{
+	struct sk_buff *skb;
+	if(ctx == NULL) {
+		printk(KERN_ERR "bpf_hv_eth_size(...) -> ctx is null\n");
+		return 0;
+	}
+	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
+	if(skb == NULL) {
+		printk(KERN_ERR "bpf_hv_eth_size(...) -> skb is null\n");
+		return 0;
+	}
+	return (uint32_t)skb->len;
 }
 
 #undef PROGDUMP
@@ -1227,6 +1265,12 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 			break;
 		case BPFHV_FUNC_print_num:
 			func = bpf_hv_print_num;
+			break;
+		case BPFHV_FUNC_eth_data:
+			func = bpf_hv_eth_data;
+			break;
+		case BPFHV_FUNC_eth_size:
+			func = bpf_hv_eth_size;
 			break;
 		default:
 			netif_err(bi, drv, bi->netdev,
