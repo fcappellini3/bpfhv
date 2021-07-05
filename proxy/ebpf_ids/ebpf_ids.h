@@ -3,6 +3,7 @@
 
 
 #include "ebpf_ids_common.h"
+#include "auto_rules.h"
 
 
 static int BPFHV_FUNC(print_num, const char* str, long long int x);
@@ -25,18 +26,14 @@ __ids_analyze_ip_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 
     switch(ip_header->protocol) {
         case IPPROTO_UDP:
-            return IDS_PASS;
+            return __auto_rules_tcp(raw_pkt_data, pkt_sz);
         case IPPROTO_TCP:
-            return IDS_PASS;
+            return __auto_rules_udp(raw_pkt_data, pkt_sz);
         case IPPROTO_ICMP:
             return IDS_PASS;
         default:
             return IDS_INVALID_PKT;
     }
-
-    /*if(ip_header->saddr == IPADDR_BE(10,0,0,11))
-        return IDS_SUSPICIOUS_LEVEL(1);
-    return IDS_PASS;*/
 }
 
 /**

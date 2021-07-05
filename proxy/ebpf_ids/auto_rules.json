@@ -1,0 +1,15 @@
+[
+    {
+        "protocol": "tcp",
+        "sourcePort": 3001,
+        "destinationPort": 3002,
+        "destinationIp": "10.0.0.101",
+        "suspiciousLevel": 1
+    },
+    {
+        "protocol": "udp",
+        "destinationPort": 9898,
+        "sourceIp": "10.0.0.10",
+        "suspiciousLevel": 2
+    }
+]

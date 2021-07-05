@@ -20,8 +20,6 @@ typedef uint8_t bool;
 
 #define IDS_SUSPICIOUS_LEVEL(A) (A)
 
-#define get_ip_header(A) ((struct iphdr*)get_eth_payload(A))
-
 
 /**
  * Given a L2 packet, return the payload address
@@ -34,6 +32,16 @@ get_eth_payload(uint8_t* raw_pkt_data) {
 }
 
 /**
+ * Given a L2 packet, return the ip header
+ * raw_pkt_data: start address of packet
+ * return: payload address
+*/
+static inline struct iphdr*
+get_ip_header(uint8_t* raw_pkt_data) {
+    return (struct iphdr*)(raw_pkt_data + sizeof(struct ethhdr));
+}
+
+/**
  * Given a L2 packet size, return true if the packet is not valid
  * pkt_sz: packet size
  * return: true if the packet is not valid
@@ -41,6 +49,26 @@ get_eth_payload(uint8_t* raw_pkt_data) {
 static inline bool
 invalid_eth_pkt(const uint32_t pkt_sz) {
     return (pkt_sz < sizeof(struct ethhdr));
+}
+
+/**
+ * Given a L2 packet, return the tcp header
+ * raw_pkt_data: start address of packet
+ * return: payload address
+*/
+static inline struct tcphdr*
+get_tcp_header(uint8_t* raw_pkt_data) {
+    return (struct tcphdr*)(raw_pkt_data + sizeof(struct ethhdr) + sizeof(struct iphdr));
+}
+
+/**
+ * Given a L2 packet, return the tcp header
+ * raw_pkt_data: start address of packet
+ * return: payload address
+*/
+static inline struct udphdr*
+get_udp_header(uint8_t* raw_pkt_data) {
+    return (struct udphdr*)(raw_pkt_data + sizeof(struct ethhdr) + sizeof(struct iphdr));
 }
 
 /**
