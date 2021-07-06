@@ -47,6 +47,9 @@ static bool tx_napi = false;
 module_param(tx_napi, bool, /* perm = allow override on modprobe */0);
 MODULE_PARM_DESC(tx_napi, "Use NAPI for TX completion");
 
+/* Driver - BPF program Shared memory */
+struct shared_memory_descriptor shared_memory = {0, 0};
+
 struct bpfhv_rxq;
 struct bpfhv_txq;
 
@@ -956,6 +959,19 @@ BPF_CALL_1(bpf_hv_eth_size, struct bpfhv_rx_context *, ctx)
 	return (uint32_t)skb->len;
 }
 
+BPF_CALL_0(bpf_hv_get_shared_memory)
+{
+	if(unlikely(!shared_memory.buffer)) {
+		shared_memory.buffer = kmalloc(SHARED_MEMORY_SIZE, GFP_KERNEL);
+		if(unlikely(!shared_memory.buffer)) {
+			printk(KERN_ERR "bpf_hv_get_shared_memory(...) -> shared_memory.buffer is null\n");
+			return 0;
+		}
+		shared_memory.size = SHARED_MEMORY_SIZE;
+	}
+	return (uintptr_t)shared_memory.buffer;
+}
+
 #undef PROGDUMP
 #ifdef PROGDUMP
 static void
@@ -1271,6 +1287,9 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 			break;
 		case BPFHV_FUNC_eth_size:
 			func = bpf_hv_eth_size;
+			break;
+		case BPFHV_FUNC_get_shared_memory:
+			func = bpf_hv_get_shared_memory;
 			break;
 		default:
 			netif_err(bi, drv, bi->netdev,
@@ -2130,6 +2149,11 @@ bpfhv_init(void)
 static void __exit
 bpfhv_fini(void)
 {
+	if(shared_memory.buffer) {
+		kfree(shared_memory.buffer);
+		shared_memory.buffer = NULL;
+		shared_memory.size = 0;
+	}
 	pci_unregister_driver(&bpfhv_driver);
 }
 

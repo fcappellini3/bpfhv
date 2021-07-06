@@ -6,9 +6,6 @@
 #include "auto_rules.h"
 
 
-static int BPFHV_FUNC(print_num, const char* str, long long int x);
-
-
 /**
  * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only
  * raw_pkt_data: pointer to the raw data of the packet
@@ -93,10 +90,27 @@ ids_analyze_eth_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
     }
 
     // Return
-    if(result == IDS_INVALID_PKT)
-        print_num("Invalid packet", pkt_sz);
-    else if(result != IDS_PASS)
-        print_num("Suspicious packet", result);
+    if(result == IDS_INVALID_PKT) {
+        //print_num("Invalid packet", pkt_sz);
+    } else if(result != IDS_PASS) {
+        char* str = get_shared_memory();
+        if(str)
+            BPF_STORE_STRING(str, susp_pkt);
+            str[0] = 's';
+            str[1] = 'i';
+            str[2] = 'z';
+            str[3] = 'e';
+            str[4] = 0;
+            print_num(str, pkt_sz);
+            str[0] = 'l';
+            str[1] = 'e';
+            str[2] = 'v';
+            str[3] = 'e';
+            str[4] = 'l';
+            str[5] = 0;
+            print_num(str, result);
+        }
+    }
     return result;
 }
 

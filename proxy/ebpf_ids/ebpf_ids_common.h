@@ -5,19 +5,27 @@
 // Common dependencies
 #include "net_headers.h"
 #include <stdint.h>
+#include "bpf_utils.h"
 
 
 // Data types
 typedef uint8_t bool;
 
 
+// Helper functions
+static int BPFHV_FUNC(print_num, const char* str, long long int x);
+//static struct shared_memory_descriptor* BPFHV_FUNC(get_shared_memory);
+static void* BPFHV_FUNC(get_shared_memory);
+
+
+// Constants
 #define IDS_INVALID_PKT 0xFFFFFFFFU
 #define IDS_PASS        0x00U
 
 
+// Macros
 #define IPADDR(a1,a2,a3,a4)    (uint32_t)((a1) << 24 | (a2) << 16 | (a3) << 8 | (a4))
 #define IPADDR_BE(a1,a2,a3,a4)   (__be32)((a4) << 24 | (a3) << 16 | (a2) << 8 | (a1))
-
 #define IDS_SUSPICIOUS_LEVEL(A) (A)
 
 

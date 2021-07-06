@@ -138,7 +138,8 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_smp_mb_full,
 	BPFHV_FUNC_print_num,
 	BPFHV_FUNC_eth_data,
-	BPFHV_FUNC_eth_size
+	BPFHV_FUNC_eth_size,
+	BPFHV_FUNC_get_shared_memory
 };
 
 #ifndef BPFHV_FUNC
@@ -151,6 +152,13 @@ enum bpfhv_helper_id {
 #if 0
 static void *BPFHV_FUNC(pkt_alloc, struct bpfhv_rx_context *ctx);
 #endif
+
+/* Driver - BPF program Shared memory */
+struct shared_memory_descriptor {
+	void* buffer;
+	uint64_t size;
+};
+#define SHARED_MEMORY_SIZE 1048576 //1MiB
 
 /*
  * PCI device definitions, including PCI identifiers,
