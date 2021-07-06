@@ -94,8 +94,7 @@ ids_analyze_eth_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
         //print_num("Invalid packet", pkt_sz);
     } else if(result != IDS_PASS) {
         char* str = get_shared_memory();
-        if(str)
-            BPF_STORE_STRING(str, susp_pkt);
+        if(str) {
             str[0] = 's';
             str[1] = 'i';
             str[2] = 'z';
