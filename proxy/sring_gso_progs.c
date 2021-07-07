@@ -1,5 +1,6 @@
 #include "bpfhv.h"
 #include "sring_gso.h"
+#include "./ebpf_ids/ebpf_ids.h"
 
 #ifndef __section
 # define __section(NAME)                  \
@@ -363,5 +364,12 @@ int sring_gso_rxi(struct bpfhv_rx_context *ctx)
         return 1;
     }
 
+    return 0;
+}
+
+__section("rxh")
+int sring_rxh(struct bpfhv_rx_context *ctx)
+{
+    sring_ids_analyze_eth_pkt(ctx);
     return 0;
 }

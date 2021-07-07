@@ -13,8 +13,9 @@ typedef uint8_t bool;
 
 
 // Helper functions
+static uint8_t* BPFHV_FUNC(eth_data, struct bpfhv_rx_context *ctx);
+static uint32_t BPFHV_FUNC(eth_size, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(print_num, const char* str, long long int x);
-//static struct shared_memory_descriptor* BPFHV_FUNC(get_shared_memory);
 static void* BPFHV_FUNC(get_shared_memory);
 
 

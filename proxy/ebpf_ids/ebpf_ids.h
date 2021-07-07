@@ -113,5 +113,13 @@ ids_analyze_eth_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
     return result;
 }
 
+/**
+ * Call ids_analyze_eth_pkt(...) based on current bpfhv_rx_context
+ */
+static inline uint32_t
+sring_ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx) {
+    return ids_analyze_eth_pkt(eth_data(ctx), eth_size(ctx));
+}
+
 
 #endif

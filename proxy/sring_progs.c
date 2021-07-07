@@ -9,9 +9,6 @@
 
 static int BPFHV_FUNC(rx_pkt_alloc, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(smp_mb_full);
-static uint8_t* BPFHV_FUNC(eth_data, struct bpfhv_rx_context *ctx);
-static uint32_t BPFHV_FUNC(eth_size, struct bpfhv_rx_context *ctx);
-
 
 #define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
 #define compiler_barrier() __asm__ __volatile__ ("");
@@ -22,14 +19,6 @@ static inline int
 clear_met_cons(uint32_t old_clear, uint32_t cons, uint32_t new_clear)
 {
     return (uint32_t)(new_clear - cons - 1) < (uint32_t)(new_clear - old_clear);
-}
-
-/**
- * Call ids_analyze_eth_pkt(...) based on current bpfhv_rx_context
- */
-static inline uint32_t
-sring_ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx) {
-    return ids_analyze_eth_pkt(eth_data(ctx), eth_size(ctx));
 }
 
 __section("txp")

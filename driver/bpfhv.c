@@ -932,12 +932,12 @@ BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
 BPF_CALL_1(bpf_hv_eth_data, struct bpfhv_rx_context *, ctx)
 {
 	struct sk_buff *skb;
-	if(ctx == NULL) {
+	if(unlikely(ctx == NULL)) {
 		printk(KERN_ERR "bpf_hv_eth_data(...) -> ctx is null\n");
 		return 0;
 	}
 	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
-	if(skb == NULL) {
+	if(unlikely(skb == NULL)) {
 		printk(KERN_ERR "bpf_hv_eth_data(...) -> skb is null\n");
 		return 0;
 	}
@@ -947,12 +947,12 @@ BPF_CALL_1(bpf_hv_eth_data, struct bpfhv_rx_context *, ctx)
 BPF_CALL_1(bpf_hv_eth_size, struct bpfhv_rx_context *, ctx)
 {
 	struct sk_buff *skb;
-	if(ctx == NULL) {
+	if(unlikely(ctx == NULL)) {
 		printk(KERN_ERR "bpf_hv_eth_size(...) -> ctx is null\n");
 		return 0;
 	}
 	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
-	if(skb == NULL) {
+	if(unlikely(skb == NULL)) {
 		printk(KERN_ERR "bpf_hv_eth_size(...) -> skb is null\n");
 		return 0;
 	}
