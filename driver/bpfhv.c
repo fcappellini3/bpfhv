@@ -29,6 +29,7 @@
 #include <net/sock.h>  /* struct sock */
 
 #include "bpfhv.h"
+#include "bpfhv_ebpf_memory.h"
 
 #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV|NETIF_MSG_PROBE|NETIF_MSG_LINK)
 static int debug = -1; /* use DEFAULT_MSG_ENABLE by default */
@@ -47,9 +48,6 @@ MODULE_PARM_DESC(gso, "Enable generic segmentation offload");
 static bool tx_napi = false;
 module_param(tx_napi, bool, /* perm = allow override on modprobe */0);
 MODULE_PARM_DESC(tx_napi, "Use NAPI for TX completion");
-
-/* Driver - BPF program Shared memory */
-struct shared_memory_descriptor shared_memory = {0, 0};
 
 struct bpfhv_rxq;
 struct bpfhv_txq;
@@ -962,15 +960,7 @@ BPF_CALL_1(bpf_hv_eth_size, struct bpfhv_rx_context *, ctx)
 
 BPF_CALL_0(bpf_hv_get_shared_memory)
 {
-	if(unlikely(!shared_memory.buffer)) {
-		shared_memory.buffer = kmalloc(SHARED_MEMORY_SIZE, GFP_KERNEL);
-		if(unlikely(!shared_memory.buffer)) {
-			printk(KERN_ERR "bpf_hv_get_shared_memory(...) -> shared_memory.buffer is null\n");
-			return 0;
-		}
-		shared_memory.size = SHARED_MEMORY_SIZE;
-	}
-	return (uintptr_t)shared_memory.buffer;
+	return (uintptr_t)get_shared_mem();
 }
 
 /**
@@ -2186,13 +2176,11 @@ bpfhv_init(void)
 static void __exit
 bpfhv_fini(void)
 {
-	if(shared_memory.buffer) {
-		kfree(shared_memory.buffer);
-		shared_memory.buffer = NULL;
-		shared_memory.size = 0;
-	}
 	pci_unregister_driver(&bpfhv_driver);
+	ebpf_mem_fini();
 }
+
+#include "bpfhv_ebpf_memory.c"
 
 module_init(bpfhv_init);
 module_exit(bpfhv_fini);
