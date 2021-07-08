@@ -12,7 +12,7 @@ __auto_rules_tcp(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 	struct iphdr* ip_header = get_ip_header(raw_pkt_data);
 	struct tcphdr* tcp_header = get_tcp_header(raw_pkt_data);
 	if(ip_header->saddr == IPADDR_BE(10,0,0,10) && be16_to_cpu(tcp_header->dest) == 9898) {
-		return IDS_SUSPICIOUS_LEVEL(1);
+		return IDS_SUSPICIOUS_LEVEL(6);
 	}
 	return IDS_PASS;
 }
@@ -23,7 +23,7 @@ __auto_rules_udp(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 	struct iphdr* ip_header = get_ip_header(raw_pkt_data);
 	struct udphdr* udp_header = get_udp_header(raw_pkt_data);
 	if(be16_to_cpu(udp_header->dest) == 9898 && ip_header->saddr == IPADDR_BE(10,0,0,10)) {
-		return IDS_SUSPICIOUS_LEVEL(2);
+		return IDS_SUSPICIOUS_LEVEL(6);
 	}
 	return IDS_PASS;
 }

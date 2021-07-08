@@ -17,6 +17,7 @@ static uint8_t* BPFHV_FUNC(eth_data, struct bpfhv_rx_context *ctx);
 static uint32_t BPFHV_FUNC(eth_size, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(print_num, const char* str, long long int x);
 static void* BPFHV_FUNC(get_shared_memory);
+static uint32_t BPFHV_FUNC(force_close_socket, struct bpfhv_rx_context *ctx);
 
 
 // Constants
@@ -28,6 +29,7 @@ static void* BPFHV_FUNC(get_shared_memory);
 #define IPADDR(a1,a2,a3,a4)    (uint32_t)((a1) << 24 | (a2) << 16 | (a3) << 8 | (a4))
 #define IPADDR_BE(a1,a2,a3,a4)   (__be32)((a4) << 24 | (a3) << 16 | (a2) << 8 | (a1))
 #define IDS_SUSPICIOUS_LEVEL(A) (A)
+#define IS_CRITICAL(A) ((A) > 5)
 
 
 /**

@@ -26,6 +26,7 @@
 #include <linux/random.h>	/* get_random_bytes() */
 #include <linux/pci.h>
 #include <linux/virtio_net.h>	/* struct virtio_net_hdr */
+#include <net/sock.h>  /* struct sock */
 
 #include "bpfhv.h"
 
@@ -972,6 +973,39 @@ BPF_CALL_0(bpf_hv_get_shared_memory)
 	return (uintptr_t)shared_memory.buffer;
 }
 
+/**
+ * Ask the driver to close the socket related to ctx.
+ * ctx: Pointer to the current bpfhv_rx_context
+*/
+BPF_CALL_1(bpf_hv_force_close_socket, struct bpfhv_rx_context *, ctx)
+{
+	struct sk_buff *skb;
+	struct sock* sk;
+	struct socket* socket;
+	if(unlikely(ctx == NULL)) {
+		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> ctx is null\n");
+		return 0;
+	}
+	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
+	if(unlikely(skb == NULL)) {
+		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> skb is null\n");
+		return 0;
+	}
+	sk = skb->sk;
+	if(unlikely(sk == NULL)) {
+		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> sk is null\n");
+		return 0;
+	}
+	socket = sk->sk_socket;
+	if(unlikely(socket == NULL)) {
+		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> socket is null\n");
+		return 0;
+	}
+	sock_release(socket);
+	printk(KERN_ERR "bpf_hv_force_close_socket(...) -> socket released\n");
+	return 1;
+}
+
 #undef PROGDUMP
 #ifdef PROGDUMP
 static void
@@ -1290,6 +1324,9 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 			break;
 		case BPFHV_FUNC_get_shared_memory:
 			func = bpf_hv_get_shared_memory;
+			break;
+		case BPFHV_FUNC_force_close_socket:
+			func = bpf_hv_force_close_socket;
 			break;
 		default:
 			netif_err(bi, drv, bi->netdev,
