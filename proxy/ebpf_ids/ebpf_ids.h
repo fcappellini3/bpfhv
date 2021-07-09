@@ -129,8 +129,8 @@ ids_analyze_eth_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 static inline uint32_t
 sring_ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx) {
     uint32_t level = ids_analyze_eth_pkt(eth_data(ctx), eth_size(ctx));
-    if(IS_CRITICAL(level))
-        force_close_socket(ctx);
+    /*if(IS_CRITICAL(level))
+        force_close_socket(ctx);*/
     return level;
 }
 

@@ -394,6 +394,7 @@ struct arphdr {
 	unsigned char		ar_tha[ETH_ALEN];	/* target hardware address	*/
 	unsigned char		ar_tip[4];		/* target IP address		*/
 #endif
+};
 
 // Added
 struct arpethbody {
@@ -401,6 +402,4 @@ struct arpethbody {
 	__be32  ar_sip;           /* sender IP address */
 	uint8_t ar_tha[ETH_ALEN]; /* target hardware address */
 	__be32  ar_tip;           /* target IP address */
-}
-
 };

@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-
+/*
 #define BPF_STORE_STRING(WHERE, STRING_LITERAL) \
     bpf_memcpy(WHERE, STRING_LITERAL, sizeof(STRING_LITERAL))
 
@@ -21,3 +21,4 @@ bpf_memcpy(void* dst_, void* src_, uint64_t size) {
 	for(; src < stop; ++src, ++dst)
 		*dst = *src;
 }
+*/

@@ -2047,14 +2047,18 @@ bpfhv_rx_clean(struct bpfhv_rxq *rxq, int budget)
 		if (bi->progs[BPFHV_PROG_RX_POSTPROC]) {
 			ret = BPF_PROG_RUN(bi->progs[BPFHV_PROG_RX_POSTPROC],
 						/*ctx=*/ctx);
-			if (unlikely(ret)) {
+			if (unlikely(ret != 0 && ret != 1)) {
 				netif_err(bi, rx_err, bi->netdev,
 					"rxh() --> %d\n", ret);
 			}
+		} else {
+			// If the program do not exists, set ret = BPFHV_PROG_RX_POSTPROC_OK
+			ret = BPFHV_PROG_RX_POSTPROC_OK;
 		}
 
 		skb->protocol = eth_type_trans(skb, bi->netdev);
-		netif_receive_skb(skb);
+		if(ret != BPFHV_PROG_RX_POSTPROC_PKT_DROP)
+			netif_receive_skb(skb);
 		if (rxq->rx_free_bufs >= 16) {
 			bpfhv_rx_refill(rxq, GFP_ATOMIC);
 		}

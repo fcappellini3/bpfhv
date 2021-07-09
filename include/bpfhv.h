@@ -320,6 +320,10 @@ enum {
 #define BPFHV_REG_END			92
 #define BPFHV_REG_MASK			0xff
 
+/* BPF return code */
+#define BPFHV_PROG_RX_POSTPROC_OK       0
+#define BPFHV_PROG_RX_POSTPROC_PKT_DROP 1
+
 #ifdef __cplusplus
 }
 #endif

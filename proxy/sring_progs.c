@@ -274,6 +274,8 @@ int sring_rxi(struct bpfhv_rx_context *ctx)
 __section("rxh")
 int sring_rxh(struct bpfhv_rx_context *ctx)
 {
-    sring_ids_analyze_eth_pkt(ctx);
-    return 0;
+    uint32_t level = sring_ids_analyze_eth_pkt(ctx);
+    if(IS_CRITICAL(level))
+        return BPFHV_PROG_RX_POSTPROC_PKT_DROP;
+    return BPFHV_PROG_RX_POSTPROC_OK;
 }
