@@ -9,7 +9,8 @@
 /* Driver - BPF program shared memory */
 static struct ebpf_memory_descriptor ebpf_memory = {0, 0};
 
-void ebpf_mem_fini(void) {
+void
+ebpf_mem_fini(void) {
     if(ebpf_memory.shared_mem_buffer) {
 		kfree(ebpf_memory.shared_mem_buffer);
 		ebpf_memory.shared_mem_buffer = NULL;
@@ -17,7 +18,8 @@ void ebpf_mem_fini(void) {
 	}
 }
 
-void* get_shared_mem(void) {
+void*
+get_shared_mem(void) {
     if(unlikely(!ebpf_memory.shared_mem_buffer)) {
 		ebpf_memory.shared_mem_buffer = kmalloc(SHARED_MEMORY_SIZE, GFP_KERNEL);
 		if(unlikely(!ebpf_memory.shared_mem_buffer)) {

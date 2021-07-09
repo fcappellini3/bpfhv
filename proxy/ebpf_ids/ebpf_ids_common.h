@@ -28,7 +28,7 @@ static uint32_t BPFHV_FUNC(force_close_socket, struct bpfhv_rx_context *ctx);
 // Macros
 #define IPADDR(a1,a2,a3,a4)    (uint32_t)((a1) << 24 | (a2) << 16 | (a3) << 8 | (a4))
 #define IPADDR_BE(a1,a2,a3,a4)   (__be32)((a4) << 24 | (a3) << 16 | (a2) << 8 | (a1))
-#define IDS_SUSPICIOUS_LEVEL(A) (A)
+#define IDS_LEVEL(A) (A)
 #define IS_CRITICAL(A) ((A) > 5)
 
 
@@ -50,6 +50,26 @@ get_eth_payload(uint8_t* raw_pkt_data) {
 static inline struct iphdr*
 get_ip_header(uint8_t* raw_pkt_data) {
     return (struct iphdr*)(raw_pkt_data + sizeof(struct ethhdr));
+}
+
+/**
+ * Given a L2 packet, return the arp header
+ * raw_pkt_data: start address of packet
+ * return: payload address
+*/
+static inline struct arphdr*
+get_arp_header(uint8_t* raw_pkt_data) {
+    return (struct arphdr*)(raw_pkt_data + sizeof(struct ethhdr));
+}
+
+/**
+ * Given a L2 packet, return the arp body
+ * raw_pkt_data: start address of packet
+ * return: payload address
+*/
+static inline struct arphdr*
+get_arp_body(uint8_t* raw_pkt_data) {
+    return (struct arphdr*)(raw_pkt_data + sizeof(struct ethhdr) + sizeof(struct arphdr));
 }
 
 /**
@@ -90,6 +110,16 @@ get_udp_header(uint8_t* raw_pkt_data) {
 static inline bool
 invalid_ip_pkt(const uint32_t pkt_sz) {
     return (pkt_sz < sizeof(struct ethhdr) + sizeof(struct iphdr));
+}
+
+/**
+ * Given a L2 packet size, return false if the packet is a valid ARP packet
+ * pkt_sz: packet size
+ * return: true if the packet is not valid
+*/
+static inline bool
+invalid_arp_pkt(const uint32_t pkt_sz) {
+    return (pkt_sz < sizeof(struct ethhdr) + sizeof(struct arphdr) + sizeof(struct arpethbody));
 }
 
 /**

@@ -40,6 +40,22 @@ __ids_analyze_ip_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 */
 static inline uint32_t
 __ids_analyze_arp_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
+#if 0
+    if(invalid_arp_pkt(pkt_sz))
+        return IDS_INVALID_PKT;
+    struct arphdr* arp_header = get_arp_header(raw_pkt_data);
+    if(arp_header->ar_hln != 6 && arp_header->ar_pln != 4)
+        return IDS_INVALID_PKT;
+#endif
+#if 0
+    // Example of APR poisoning detection
+    struct arpethbody* arp_body = get_arp_body(raw_pkt_data);
+    if(
+        arp_body->ar_tip == GATEWAY_IP &&
+        !mac_equal(arp_body->ar_tha, GATEWAY_MAC)
+    )
+        return IDS_LEVEL(10);
+#endif
     return IDS_PASS;
 }
 

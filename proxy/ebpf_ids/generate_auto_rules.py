@@ -79,8 +79,8 @@ def tcp_rule_to_if_block(rule):
             if_block.add_condition(
                 "ip_header->daddr == IPADDR_BE({})".format(rule[key].replace(".", ","))
             )
-        elif key == "suspiciousLevel":
-            if_block.set_body("return IDS_SUSPICIOUS_LEVEL({});".format(rule[key]), 1)
+        elif key == "idsLevel":
+            if_block.set_body("return IDS_LEVEL({});".format(rule[key]), 1)
         elif key == "protocol":
             pass
         else:
