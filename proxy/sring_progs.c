@@ -1,6 +1,6 @@
 #include "bpfhv.h"
 #include "sring.h"
-#include "progs_commonn.h"
+#include "progs_common.h"
 #include "./ebpf_ids/ebpf_ids.h"
 
 

@@ -10,7 +10,7 @@
  * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
-static inline uint32_t
+static __inline uint32_t
 __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
     if(invalid_ip_pkt(pkt))
         return IDS_INVALID_PKT;
@@ -36,7 +36,7 @@ __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
  * Apply IDS ARP rules. This function must be called by ids_analyze_eth_pkt only.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
-static inline uint32_t
+static __inline uint32_t
 __ids_analyze_arp_pkt(struct bpfhv_pkt* pkt) {
 #if 0
     if(invalid_arp_pkt(pkt_sz))
@@ -61,7 +61,7 @@ __ids_analyze_arp_pkt(struct bpfhv_pkt* pkt) {
  * Apply IDS L2 rules. This function must be called by ids_analyze_eth_pkt only
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
-static inline uint32_t
+static __inline uint32_t
 __ids_l2_rules(struct bpfhv_pkt* pkt) {
     return IDS_PASS;
 }
@@ -70,7 +70,7 @@ __ids_l2_rules(struct bpfhv_pkt* pkt) {
  * Analyze an L2 (ETH) packet provided as a struct bpfhv_pkt.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
-static inline uint32_t
+static __inline uint32_t
 ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
     // Check if the packet is valid before everything else
     if(invalid_eth_pkt(pkt)) {
@@ -119,7 +119,7 @@ ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
 /**
  * Call ids_analyze_eth_pkt(...) based on current bpfhv_rx_context
  */
-static inline uint32_t
+static __inline uint32_t
 ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
     struct bpfhv_pkt* pkt = get_bpfhv_pkt(ctx);
     if(!pkt)
