@@ -1,16 +1,8 @@
 #include "bpfhv.h"
 #include "sring_gso.h"
+#include "progs_commonn.h"
 #include "./ebpf_ids/ebpf_ids.h"
 
-#ifndef __section
-# define __section(NAME)                  \
-   __attribute__((section(NAME), used))
-#endif
-
-#ifndef __inline
-# define __inline                         \
-   inline __attribute__((always_inline))
-#endif
 
 #if defined(WITH_CSUM) || defined(WITH_GSO)
 /* Imported from Linux (include/uapi/linux/virtio_net.h). */

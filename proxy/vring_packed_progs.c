@@ -1,15 +1,7 @@
 #include "bpfhv.h"
+#include "progs_commonn.h"
 #include "vring_packed.h"
 
-#ifndef __section
-# define __section(NAME)                  \
-   __attribute__((section(NAME), used))
-#endif
-
-#ifndef __inline
-# define __inline                         \
-   inline __attribute__((always_inline))
-#endif
 
 static int BPFHV_FUNC(rx_pkt_alloc, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(smp_mb_full);
