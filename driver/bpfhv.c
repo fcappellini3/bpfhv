@@ -218,6 +218,8 @@ static const struct ethtool_ops bpfhv_ethtool_ops = {
 	.get_drvinfo = bpfhv_get_drvinfo,
 };
 
+struct bpfhv_pkt* bpfhv_pkt = 0;
+
 /* Return the features that driver and device support by working
  * together. */
 static uint32_t
@@ -928,34 +930,21 @@ BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
  * Additional BPF helper functions (IDS support)
 */
 
-BPF_CALL_1(bpf_hv_eth_data, struct bpfhv_rx_context *, ctx)
+BPF_CALL_1(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx)
 {
 	struct sk_buff *skb;
 	if(unlikely(ctx == NULL)) {
-		printk(KERN_ERR "bpf_hv_eth_data(...) -> ctx is null\n");
+		printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> ctx is null\n");
 		return 0;
 	}
 	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
 	if(unlikely(skb == NULL)) {
-		printk(KERN_ERR "bpf_hv_eth_data(...) -> skb is null\n");
+		printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> skb is null\n");
 		return 0;
 	}
-	return (uintptr_t)skb->data;
-}
-
-BPF_CALL_1(bpf_hv_eth_size, struct bpfhv_rx_context *, ctx)
-{
-	struct sk_buff *skb;
-	if(unlikely(ctx == NULL)) {
-		printk(KERN_ERR "bpf_hv_eth_size(...) -> ctx is null\n");
-		return 0;
-	}
-	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
-	if(unlikely(skb == NULL)) {
-		printk(KERN_ERR "bpf_hv_eth_size(...) -> skb is null\n");
-		return 0;
-	}
-	return (uint32_t)skb->len;
+	bpfhv_pkt->raw_buff = skb->data;
+	bpfhv_pkt->len = skb->len;
+	return (uintptr_t)bpfhv_pkt;
 }
 
 BPF_CALL_0(bpf_hv_get_shared_memory)
@@ -1306,11 +1295,8 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 		case BPFHV_FUNC_print_num:
 			func = bpf_hv_print_num;
 			break;
-		case BPFHV_FUNC_eth_data:
-			func = bpf_hv_eth_data;
-			break;
-		case BPFHV_FUNC_eth_size:
-			func = bpf_hv_eth_size;
+		case BPFHV_FUNC_get_bpfhv_pkt:
+			func = bpf_hv_get_bpfhv_pkt;
 			break;
 		case BPFHV_FUNC_get_shared_memory:
 			func = bpf_hv_get_shared_memory;
@@ -2045,11 +2031,12 @@ bpfhv_rx_clean(struct bpfhv_rxq *rxq, int budget)
 		}
 
 		if (bi->progs[BPFHV_PROG_RX_POSTPROC]) {
-			ret = BPF_PROG_RUN(bi->progs[BPFHV_PROG_RX_POSTPROC],
-						/*ctx=*/ctx);
-			if (unlikely(ret != 0 && ret != 1)) {
-				netif_err(bi, rx_err, bi->netdev,
-					"rxh() --> %d\n", ret);
+			ret = BPF_PROG_RUN(bi->progs[BPFHV_PROG_RX_POSTPROC], /*ctx=*/ctx);
+			if (unlikely(
+				ret != BPFHV_PROG_RX_POSTPROC_OK &&
+				ret != BPFHV_PROG_RX_POSTPROC_PKT_DROP
+			)) {
+				netif_err(bi, rx_err, bi->netdev, "rxh() --> %d\n", ret);
 			}
 		} else {
 			// If the program do not exists, set ret = BPFHV_PROG_RX_POSTPROC_OK
@@ -2057,8 +2044,17 @@ bpfhv_rx_clean(struct bpfhv_rxq *rxq, int budget)
 		}
 
 		skb->protocol = eth_type_trans(skb, bi->netdev);
-		if(ret != BPFHV_PROG_RX_POSTPROC_PKT_DROP)
+
+		/*
+		 * If ret is BPFHV_PROG_RX_POSTPROC_PKT_DROP the packet must be dropped. This simply means
+		 * not to forward the skb (struct sk_buff) to the upper level of the OS via the
+		 * netif_receive_skb(skb) function and to free memory using kfree_skb(skb).
+		 */
+		if(ret == BPFHV_PROG_RX_POSTPROC_PKT_DROP)
+			kfree_skb(skb);
+		else
 			netif_receive_skb(skb);
+
 		if (rxq->rx_free_bufs >= 16) {
 			bpfhv_rx_refill(rxq, GFP_ATOMIC);
 		}
@@ -2174,6 +2170,7 @@ static struct pci_driver bpfhv_driver = {
 static int __init
 bpfhv_init(void)
 {
+	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
 	return pci_register_driver(&bpfhv_driver);
 }
 

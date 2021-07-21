@@ -94,10 +94,10 @@ def udp_rule_to_if_block(rule):
 
 def generate_tcp_function(rules_tcp):
     fb = FunctionBlock()
-    fb.set_prototype("static inline uint32_t\n__auto_rules_tcp(uint8_t* raw_pkt_data, uint32_t pkt_sz)")
+    fb.set_prototype("static inline uint32_t\n__auto_rules_tcp(struct bpfhv_pkt* pkt)")
     fb.add_body(
-        "struct iphdr* ip_header = get_ip_header(raw_pkt_data);\n" +
-        "struct tcphdr* tcp_header = get_tcp_header(raw_pkt_data);",
+        "struct iphdr* ip_header = get_ip_header(pkt);\n" +
+        "struct tcphdr* tcp_header = get_tcp_header(pkt);",
         1
     )
     for rule in rules_tcp:
@@ -109,10 +109,10 @@ def generate_tcp_function(rules_tcp):
 
 def generate_udp_function(rules_tcp):
     fb = FunctionBlock()
-    fb.set_prototype("static inline uint32_t\n__auto_rules_udp(uint8_t* raw_pkt_data, uint32_t pkt_sz)")
+    fb.set_prototype("static inline uint32_t\n__auto_rules_udp(struct bpfhv_pkt* pkt)")
     fb.add_body(
-        "struct iphdr* ip_header = get_ip_header(raw_pkt_data);\n" +
-        "struct udphdr* udp_header = get_udp_header(raw_pkt_data);",
+        "struct iphdr* ip_header = get_ip_header(pkt);\n" +
+        "struct udphdr* udp_header = get_udp_header(pkt);",
         1
     )
     for rule in rules_tcp:

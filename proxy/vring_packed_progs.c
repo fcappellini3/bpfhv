@@ -6,6 +6,11 @@
    __attribute__((section(NAME), used))
 #endif
 
+#ifndef __inline
+# define __inline                         \
+   inline __attribute__((always_inline))
+#endif
+
 static int BPFHV_FUNC(rx_pkt_alloc, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(smp_mb_full);
 
@@ -14,7 +19,7 @@ static int BPFHV_FUNC(smp_mb_full);
 #define smp_mb_release()    compiler_barrier()
 #define smp_mb_acquire()    compiler_barrier()
 
-static inline void
+static __inline void
 vring_packed_add(struct vring_packed_virtq *vq, struct bpfhv_buf *b,
                  uint16_t flags)
 {
@@ -56,7 +61,7 @@ vring_packed_add(struct vring_packed_virtq *vq, struct bpfhv_buf *b,
 }
 
 /* Check if the hypervisor needs a notification. */
-static inline int
+static __inline int
 vring_packed_kick_needed(struct vring_packed_virtq *vq, uint16_t num_published)
 {
     uint16_t old_idx, event_idx, wrap_counter;
@@ -99,7 +104,7 @@ int vring_packed_txp(struct bpfhv_tx_context *ctx)
     return 0;
 }
 
-static inline int
+static __inline int
 vring_packed_desc_is_used(struct vring_packed_virtq *vq, uint16_t used_idx,
                           uint8_t used_wrap_counter)
 {
@@ -112,14 +117,14 @@ vring_packed_desc_is_used(struct vring_packed_virtq *vq, uint16_t used_idx,
     return avail == used && used == used_wrap_counter;
 }
 
-static inline int
+static __inline int
 vring_packed_more_used(struct vring_packed_virtq *vq)
 {
     return vring_packed_desc_is_used(vq, vq->g.next_used_idx,
                                      vq->g.used_wrap_counter);
 }
 
-static inline int
+static __inline int
 vring_packed_more_pending(struct vring_packed_virtq *vq)
 {
     uint16_t flags = vq->desc[vq->g.next_used_idx].flags;
@@ -136,7 +141,7 @@ vring_packed_more_pending(struct vring_packed_virtq *vq)
 /* Consume the next used entry. It is up to the caller to check that
  * we can actually do that. This returns -1 in case of error, and
  * 1 in case of success (since it is more convenient for the caller). */
-static inline int
+static __inline int
 vring_packed_get(struct vring_packed_virtq *vq, struct bpfhv_buf *b)
 {
     struct vring_packed_desc_state *state = vring_packed_state(vq);
@@ -166,7 +171,7 @@ vring_packed_get(struct vring_packed_virtq *vq, struct bpfhv_buf *b)
     return 1;
 }
 
-static inline int
+static __inline int
 vring_packed_intr(struct vring_packed_virtq *vq, uint16_t min_completed_bufs)
 {
     uint16_t used_wrap_counter = vq->g.used_wrap_counter;

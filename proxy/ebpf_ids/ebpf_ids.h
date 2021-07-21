@@ -8,24 +8,23 @@
 
 /**
  * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only
- * raw_pkt_data: pointer to the raw data of the packet
- * pkt_sz: packet size
+ * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
 static inline uint32_t
-__ids_analyze_ip_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
-    if(invalid_ip_pkt(pkt_sz))
+__ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
+    if(invalid_ip_pkt(pkt))
         return IDS_INVALID_PKT;
 
-    struct iphdr* ip_header = get_ip_header(raw_pkt_data);
+    struct iphdr* ip_header = get_ip_header(pkt);
     if(ip_header->version != 4) {
         return IDS_PASS;
     }
 
     switch(ip_header->protocol) {
         case IPPROTO_UDP:
-            return __auto_rules_tcp(raw_pkt_data, pkt_sz);
+            return __auto_rules_tcp(pkt);
         case IPPROTO_TCP:
-            return __auto_rules_udp(raw_pkt_data, pkt_sz);
+            return __auto_rules_udp(pkt);
         case IPPROTO_ICMP:
             return IDS_PASS;
         default:
@@ -34,25 +33,24 @@ __ids_analyze_ip_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 }
 
 /**
- * Apply IDS ARP rules. This function must be called by ids_analyze_eth_pkt only
- * raw_pkt_data: pointer to the raw data of the packet
- * pkt_sz: packet size
+ * Apply IDS ARP rules. This function must be called by ids_analyze_eth_pkt only.
+ * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
 static inline uint32_t
-__ids_analyze_arp_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
+__ids_analyze_arp_pkt(struct bpfhv_pkt* pkt) {
 #if 0
     if(invalid_arp_pkt(pkt_sz))
         return IDS_INVALID_PKT;
-    struct arphdr* arp_header = get_arp_header(raw_pkt_data);
+    struct arphdr* arp_header = get_arp_header(pkt);
     if(arp_header->ar_hln != 6 && arp_header->ar_pln != 4)
         return IDS_INVALID_PKT;
 #endif
 #if 0
     // Example of APR poisoning detection
-    struct arpethbody* arp_body = get_arp_body(raw_pkt_data);
+    struct arpethbody* arp_body = get_arp_body(pkt);
     if(
-        arp_body->ar_tip == GATEWAY_IP &&
-        !mac_equal(arp_body->ar_tha, GATEWAY_MAC)
+        arp_body->ar_sip == GATEWAY_IP &&
+        !mac_equal(arp_body->ar_sha, GATEWAY_MAC)
     )
         return IDS_LEVEL(10);
 #endif
@@ -61,44 +59,39 @@ __ids_analyze_arp_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
 
 /**
  * Apply IDS L2 rules. This function must be called by ids_analyze_eth_pkt only
- * raw_pkt_data: pointer to the raw data of the packet
- * pkt_sz: packet size
+ * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
 static inline uint32_t
-__ids_l2_rules(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
+__ids_l2_rules(struct bpfhv_pkt* pkt) {
     return IDS_PASS;
 }
 
 /**
- * Analyze an L2 (ETH) packet
- * raw_pkt_data: pointer to the raw data of the packet
- * pkt_sz: packet size
+ * Analyze an L2 (ETH) packet provided as a struct bpfhv_pkt.
+ * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
 */
 static inline uint32_t
-ids_analyze_eth_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
-    if(!raw_pkt_data)
-        return IDS_INVALID_PKT;
-
+ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
     // Check if the packet is valid before everything else
-    if(invalid_eth_pkt(pkt_sz)) {
+    if(invalid_eth_pkt(pkt)) {
         return IDS_INVALID_PKT;
     }
 
     // L2 rules
-    uint32_t l2_check = __ids_l2_rules(raw_pkt_data, pkt_sz);
+    uint32_t l2_check = __ids_l2_rules(pkt);
     if(l2_check != IDS_PASS)
         return l2_check;
 
     // The next step depends on the L3 protocol written in the L2 header
-    struct ethhdr* eth_header = (struct ethhdr*)raw_pkt_data;
+    struct ethhdr* eth_header = get_eth_header(pkt);
     uint16_t proto = be16_to_cpu(eth_header->h_proto);
     uint32_t result;
     switch(proto) {
         case ETH_P_ARP:
-            result = __ids_analyze_arp_pkt(raw_pkt_data, pkt_sz);
+            result = __ids_analyze_arp_pkt(pkt);
             break;
         case ETH_P_IP:
-            result = __ids_analyze_ip_pkt(raw_pkt_data, pkt_sz);
+            result = __ids_analyze_ip_pkt(pkt);
             break;
         default:
             result = IDS_INVALID_PKT;
@@ -127,11 +120,11 @@ ids_analyze_eth_pkt(uint8_t* raw_pkt_data, uint32_t pkt_sz) {
  * Call ids_analyze_eth_pkt(...) based on current bpfhv_rx_context
  */
 static inline uint32_t
-sring_ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx) {
-    uint32_t level = ids_analyze_eth_pkt(eth_data(ctx), eth_size(ctx));
-    /*if(IS_CRITICAL(level))
-        force_close_socket(ctx);*/
-    return level;
+ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
+    struct bpfhv_pkt* pkt = get_bpfhv_pkt(ctx);
+    if(!pkt)
+        return IDS_PASS;
+    return ids_analyze_eth_pkt(pkt);
 }
 
 

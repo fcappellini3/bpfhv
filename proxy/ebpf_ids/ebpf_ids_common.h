@@ -13,8 +13,7 @@ typedef uint8_t bool;
 
 
 // Helper functions
-static uint8_t* BPFHV_FUNC(eth_data, struct bpfhv_rx_context *ctx);
-static uint32_t BPFHV_FUNC(eth_size, struct bpfhv_rx_context *ctx);
+static struct bpfhv_pkt* BPFHV_FUNC(get_bpfhv_pkt, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(print_num, const char* str, long long int x);
 static void* BPFHV_FUNC(get_shared_memory);
 static uint32_t BPFHV_FUNC(force_close_socket, struct bpfhv_rx_context *ctx);
@@ -33,93 +32,93 @@ static uint32_t BPFHV_FUNC(force_close_socket, struct bpfhv_rx_context *ctx);
 
 
 /**
- * Given a L2 packet, return the payload address
- * raw_pkt_data: start address of packet
- * return: payload address
+ * Given a bpfhv_pkt* pkt, return the ethernet header
+ * return: ethernet header
+*/
+static inline struct ethhdr*
+get_eth_header(struct bpfhv_pkt* pkt) {
+    return (struct ethhdr*)pkt->raw_buff;
+}
+
+/**
+ * Given a bpfhv_pkt* pkt, return the payload address
+ * return: ethernet payload
 */
 static inline uint8_t*
-get_eth_payload(uint8_t* raw_pkt_data) {
-    return raw_pkt_data + sizeof(struct ethhdr);
+get_eth_payload(struct bpfhv_pkt* pkt) {
+    return ((uint8_t*)pkt->raw_buff) + sizeof(struct ethhdr);
 }
 
 /**
- * Given a L2 packet, return the ip header
- * raw_pkt_data: start address of packet
- * return: payload address
+ * Given a bpfhv_pkt* pkt, return the ip header
+ * return: ip header
 */
 static inline struct iphdr*
-get_ip_header(uint8_t* raw_pkt_data) {
-    return (struct iphdr*)(raw_pkt_data + sizeof(struct ethhdr));
+get_ip_header(struct bpfhv_pkt* pkt) {
+    return (struct iphdr*)get_eth_payload(pkt);
 }
 
 /**
- * Given a L2 packet, return the arp header
- * raw_pkt_data: start address of packet
- * return: payload address
+ * Given a bpfhv_pkt* pkt, return the arp header
+ * return: arp header
 */
 static inline struct arphdr*
-get_arp_header(uint8_t* raw_pkt_data) {
-    return (struct arphdr*)(raw_pkt_data + sizeof(struct ethhdr));
+get_arp_header(struct bpfhv_pkt* pkt) {
+    return (struct arphdr*)get_eth_payload(pkt);
 }
 
 /**
- * Given a L2 packet, return the arp body
- * raw_pkt_data: start address of packet
- * return: payload address
+ * Given a bpfhv_pkt* pkt, return the arp body
+ * return: arp body
 */
 static inline struct arphdr*
-get_arp_body(uint8_t* raw_pkt_data) {
-    return (struct arphdr*)(raw_pkt_data + sizeof(struct ethhdr) + sizeof(struct arphdr));
+get_arp_body(struct bpfhv_pkt* pkt) {
+    return (struct arphdr*)((uint8_t*)pkt->raw_buff + sizeof(struct ethhdr) + sizeof(struct arphdr));
 }
 
 /**
- * Given a L2 packet size, return true if the packet is not valid
- * pkt_sz: packet size
- * return: true if the packet is not valid
-*/
-static inline bool
-invalid_eth_pkt(const uint32_t pkt_sz) {
-    return (pkt_sz < sizeof(struct ethhdr));
-}
-
-/**
- * Given a L2 packet, return the tcp header
- * raw_pkt_data: start address of packet
- * return: payload address
+ * Given a bpfhv_pkt* pkt, return the tcp header
+ * return: tcp header
 */
 static inline struct tcphdr*
-get_tcp_header(uint8_t* raw_pkt_data) {
-    return (struct tcphdr*)(raw_pkt_data + sizeof(struct ethhdr) + sizeof(struct iphdr));
+get_tcp_header(struct bpfhv_pkt* pkt) {
+    return (struct tcphdr*)((uint8_t*)pkt->raw_buff + sizeof(struct ethhdr) + sizeof(struct iphdr));
 }
 
 /**
- * Given a L2 packet, return the tcp header
- * raw_pkt_data: start address of packet
- * return: payload address
+ * Given a bpfhv_pkt* pkt, return the tcp header
+ * return: udp header
 */
 static inline struct udphdr*
-get_udp_header(uint8_t* raw_pkt_data) {
-    return (struct udphdr*)(raw_pkt_data + sizeof(struct ethhdr) + sizeof(struct iphdr));
+get_udp_header(struct bpfhv_pkt* pkt) {
+    return (struct udphdr*)((uint8_t*)pkt->raw_buff + sizeof(struct ethhdr) + sizeof(struct iphdr));
 }
 
 /**
- * Given a L2 packet size, return false if the packet is a valid IP L3 packet
- * pkt_sz: packet size
+ * Given a bpfhv_pkt* pkt, return true if the packet is not a valid ETH packet
  * return: true if the packet is not valid
 */
 static inline bool
-invalid_ip_pkt(const uint32_t pkt_sz) {
-    return (pkt_sz < sizeof(struct ethhdr) + sizeof(struct iphdr));
+invalid_eth_pkt(struct bpfhv_pkt* pkt) {
+    return (pkt->len < sizeof(struct ethhdr));
 }
 
 /**
- * Given a L2 packet size, return false if the packet is a valid ARP packet
- * pkt_sz: packet size
+ * Given a bpfhv_pkt* pkt, return false if the packet is a valid IP L3 packet
  * return: true if the packet is not valid
 */
 static inline bool
-invalid_arp_pkt(const uint32_t pkt_sz) {
-    return (pkt_sz < sizeof(struct ethhdr) + sizeof(struct arphdr) + sizeof(struct arpethbody));
+invalid_ip_pkt(struct bpfhv_pkt* pkt) {
+    return (pkt->len < sizeof(struct ethhdr) + sizeof(struct iphdr));
+}
+
+/**
+ * Given a bpfhv_pkt* pkt, return false if the packet is a valid ARP packet
+ * return: true if the packet is not valid
+*/
+static inline bool
+invalid_arp_pkt(struct bpfhv_pkt* pkt) {
+    return (pkt->len < sizeof(struct ethhdr) + sizeof(struct arphdr) + sizeof(struct arpethbody));
 }
 
 /**

@@ -137,8 +137,7 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_tx_buf_dma_unmap,
 	BPFHV_FUNC_smp_mb_full,
 	BPFHV_FUNC_print_num,
-	BPFHV_FUNC_eth_data,           // added for IDS
-	BPFHV_FUNC_eth_size,           // added for IDS
+	BPFHV_FUNC_get_bpfhv_pkt,      // added for IDS
 	BPFHV_FUNC_get_shared_memory,  // added for IDS
 	BPFHV_FUNC_force_close_socket  // added for IDS
 };
@@ -323,6 +322,21 @@ enum {
 /* BPF return code */
 #define BPFHV_PROG_RX_POSTPROC_OK       0
 #define BPFHV_PROG_RX_POSTPROC_PKT_DROP 1
+
+/*
+ * bpfhv_tx_context and bpfhv_rx_context has a reference to the current sk_buff, but the BPF
+ * program can not use it since it can not know the current definition of struct sk_buff.
+ * This limitation makes our BPF program unable to perform (deep) packet inspection that is
+ * exactly what we want to to in our IDS implementation.
+ * As a workaround, standard eBPF programs can access struct __sk_buff that is a "mirror data
+ * structure" for sk_buff known by eBPF programs and initialized/populated by the kernel staring
+ * form a real sk_buff.
+ * The same approach is used here, there struct bpfhv_pkt is representing the current packet.
+ */
+struct bpfhv_pkt {
+	void* raw_buff;
+	uint32_t len;
+};
 
 #ifdef __cplusplus
 }

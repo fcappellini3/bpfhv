@@ -7,6 +7,11 @@
    __attribute__((section(NAME), used))
 #endif
 
+#ifndef __inline
+# define __inline                         \
+   inline __attribute__((always_inline))
+#endif
+
 static int BPFHV_FUNC(rx_pkt_alloc, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(smp_mb_full);
 
@@ -15,7 +20,7 @@ static int BPFHV_FUNC(smp_mb_full);
 #define smp_mb_release()    compiler_barrier()
 #define smp_mb_acquire()    compiler_barrier()
 
-static inline int
+static __inline int
 clear_met_cons(uint32_t old_clear, uint32_t cons, uint32_t new_clear)
 {
     return (uint32_t)(new_clear - cons - 1) < (uint32_t)(new_clear - old_clear);
@@ -51,7 +56,7 @@ int sring_txp(struct bpfhv_tx_context *ctx)
     return 0;
 }
 
-static inline void
+static __inline void
 sring_tx_get_one(struct bpfhv_tx_context *ctx,
                  struct sring_tx_context *priv)
 {
@@ -274,7 +279,7 @@ int sring_rxi(struct bpfhv_rx_context *ctx)
 __section("rxh")
 int sring_rxh(struct bpfhv_rx_context *ctx)
 {
-    uint32_t level = sring_ids_analyze_eth_pkt(ctx);
+    uint32_t level = ids_analyze_eth_pkt_by_context(ctx);
     if(IS_CRITICAL(level))
         return BPFHV_PROG_RX_POSTPROC_PKT_DROP;
     return BPFHV_PROG_RX_POSTPROC_OK;
