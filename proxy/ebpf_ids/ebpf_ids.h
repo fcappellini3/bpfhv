@@ -6,13 +6,106 @@
 #include "auto_rules.h"
 
 
+struct global {
+    uint32_t alarm_count;
+    struct ids_alarm alarms[1];
+    struct ids_capture_protocol cap_protos[1];
+};
+
 __section("pdt")
-const char ciao[] = "Ciaooo!";
+struct global global_ = {
+    .alarm_count = 1,
+    .alarms = {
+        {
+            .cap_prot_index = 0,
+            .payload_size = 5,
+            .payload = {'H', 'T', 'T', 'P', '/'},
+            .action = DROP
+        }
+    },
+    .cap_protos = {
+        {
+            .payload = {'/', 'b', 'a', 'd', '_', 'e', 'p'},
+            .action = DROP_FLOW
+        }
+    }
+};
+
+
+/**
+ * Deep scan the packet
+ * pkt: current struct bpfhv_pkt*. Assumed not to be NULL and to be a valid ip packet.
+ */
+ static __inline uint32_t
+ __ids_deep_scan(struct bpfhv_pkt* pkt) {
+     uint32_t alarm_index;
+     byte* pkt_payload;
+     uint32_t pkt_payload_size;
+     struct ids_capture_protocol* cap_prot;
+
+     // Get global memory
+     struct global* global = get_shared_memory();
+
+     // Find packet payload
+     struct iphdr* ip_header = get_ip_header(pkt);
+     if(ip_header->version != 4) {
+         return IDS_PASS;
+     }
+     switch(ip_header->protocol) {
+         case IPPROTO_UDP:
+             pkt_payload = get_udp_payload(pkt, &pkt_payload_size);
+             break;
+         case IPPROTO_TCP:
+             pkt_payload = get_tcp_payload(pkt, &pkt_payload_size);
+             break;
+         case IPPROTO_ICMP:
+             return IDS_PASS;
+         default:
+             return IDS_INVALID_PKT;
+     }
+     if(!pkt_payload)
+        return IDS_INVALID_PKT;
+
+     // Scan: search for an "alarm payload" inside pkt_payload
+     for(alarm_index = 0; alarm_index < global->alarm_count; ++alarm_index) {
+         struct ids_alarm* alarm = &global->alarms[alarm_index];
+         uint32_t find_res = find(
+             pkt_payload, pkt_payload_size,
+             alarm->payload, alarm->payload_size
+         );
+         if(find_res != 0xFFFFFFFFU) {
+             // The current pkt match an alarm
+             char s[32]; s[0] = 'f'; s[1] = 'o'; s[2] = 'u'; s[3] = 'n'; s[4] = 'd'; s[5] = ' ';
+             s[6] = 'a'; s[7] = 't'; s[8] = 0;
+             print_num(s, find_res);
+
+             bpf_memcpy(s, alarm->payload, alarm->payload_size);
+             s[alarm->payload_size] = 0;
+             print_num(s, alarm_index);
+
+             /*bpf_memcpy(s, pkt_payload + find_res, alarm->payload_size);
+             print_num(s, alarm_index);*/
+
+             bpf_memcpy(s, pkt_payload, 20);
+             s[20] = 0;
+             print_num(s, 0);
+
+             if(alarm->action == CAPTURE) {
+                 cap_prot = &global->cap_protos[alarm->cap_prot_index];
+             } else {  //alarm->action == DROP
+                 return IDS_LEVEL(10);
+             }
+         }
+     }
+
+     // Apply cap_prot
+     return IDS_PASS;  // TODO
+ }
 
 /**
  * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
-*/
+ */
 static __inline uint32_t
 __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
     if(invalid_ip_pkt(pkt))
@@ -38,7 +131,7 @@ __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
 /**
  * Apply IDS ARP rules. This function must be called by ids_analyze_eth_pkt only.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
-*/
+ */
 static __inline uint32_t
 __ids_analyze_arp_pkt(struct bpfhv_pkt* pkt) {
 #if 0
@@ -63,7 +156,7 @@ __ids_analyze_arp_pkt(struct bpfhv_pkt* pkt) {
 /**
  * Apply IDS L2 rules. This function must be called by ids_analyze_eth_pkt only
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
-*/
+ */
 static __inline uint32_t
 __ids_l2_rules(struct bpfhv_pkt* pkt) {
     return IDS_PASS;
@@ -72,7 +165,8 @@ __ids_l2_rules(struct bpfhv_pkt* pkt) {
 /**
  * Analyze an L2 (ETH) packet provided as a struct bpfhv_pkt.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
-*/
+ * return: IDS analyzis resulting level
+ */
 static __inline uint32_t
 ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
     // Check if the packet is valid before everything else
@@ -101,34 +195,46 @@ ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
             break;
     }
 
-    // Return
-    //print_num(get_shared_memory(), 100);
-    if(result == IDS_INVALID_PKT) {
-        //print_num("Invalid packet", pkt_sz);
-    } else if(result != IDS_PASS) {
-        char* str = get_shared_memory();
-        if(str) {
-            str[0] = 'l';
-            str[1] = 'e';
-            str[2] = 'v';
-            str[3] = 'e';
-            str[4] = 'l';
-            str[5] = 0;
-            print_num(str, result);
-        }
-    }
+    // If result is not IDS_PASS, the result must be returned immediately before everything else
+    // in order to drop the packet
+    if(result != IDS_PASS)
+        return result;
+
+    // In case the previous analyzes returned IDS_PASS and the current packet is an IP packet, it
+    // has to be object of a deep scan
+    if(proto == ETH_P_IP)
+        result = __ids_deep_scan(pkt);
+
     return result;
 }
 
 /**
  * Call ids_analyze_eth_pkt(...) based on current bpfhv_rx_context
+ * return: IDS analyzis resulting level
  */
 static __inline uint32_t
 ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
+    uint32_t level;
+
     struct bpfhv_pkt* pkt = get_bpfhv_pkt(ctx);
     if(!pkt)
         return IDS_PASS;
-    return ids_analyze_eth_pkt(pkt);
+
+    level = ids_analyze_eth_pkt(pkt);
+
+    // Print some info
+    if(level != IDS_PASS) {
+        char str[32];
+        str[0] = 'l';
+        str[1] = 'e';
+        str[2] = 'v';
+        str[3] = 'e';
+        str[4] = 'l';
+        str[5] = 0;
+        print_num(str, level);
+    }
+
+    return level;
 }
 
 

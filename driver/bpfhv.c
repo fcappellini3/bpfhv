@@ -2074,12 +2074,14 @@ bpfhv_rx_clean(struct bpfhv_rxq *rxq, int budget)
 		/*
 		 * If ret is BPFHV_PROG_RX_POSTPROC_PKT_DROP the packet must be dropped. This simply means
 		 * not to forward the skb (struct sk_buff) to the upper level of the OS via the
-		 * netif_receive_skb(skb) function and to free memory using kfree_skb(skb).
+		 * netif_receive_skb(skb) function and to free memory using dev_kfree_skb_any(skb).
 		 */
-		if(ret == BPFHV_PROG_RX_POSTPROC_PKT_DROP)
-			kfree_skb(skb);
-		else
+		if(ret == BPFHV_PROG_RX_POSTPROC_PKT_DROP) {
+			printk(KERN_ERR "Dropping packet!\n");
+			dev_kfree_skb_any(skb);
+		} else {
 			netif_receive_skb(skb);
+		}
 
 		if (rxq->rx_free_bufs >= 16) {
 			bpfhv_rx_refill(rxq, GFP_ATOMIC);
