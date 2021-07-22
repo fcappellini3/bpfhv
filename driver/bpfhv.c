@@ -1046,6 +1046,8 @@ progname_from_idx(unsigned int prog_idx)
 		return "txr";
 	case BPFHV_PROG_TX_PREPROC:
 		return "txh";
+	case BPFHV_PROG_PROG_DATA:
+		return "pdt";
 	default:
 		break;
 	}
@@ -1156,7 +1158,7 @@ bpfhv_programs_setup(struct bpfhv_info *bi)
 	bi->tx_ctx_size = readl(bi->regaddr + BPFHV_REG_TX_CTX_SIZE);
 
 	/* Read the eBPF programs from the hypervisor. */
-	for (i = BPFHV_PROG_NONE + 1; i < BPFHV_PROG_MAX; i++) {
+	for (i = BPFHV_PROG_NONE + 1; i < BPFHV_PROG_PROG_DATA; i++) {
 		uint32_t *progp;
 		size_t prog_len;
 		size_t j, jmax;
@@ -1178,8 +1180,7 @@ bpfhv_programs_setup(struct bpfhv_info *bi)
 		jmax = (prog_len * sizeof(struct bpf_insn)) / sizeof(*progp);
 		progp = (uint32_t *)insns;
 		for (j = 0; j < jmax; j++, progp++) {
-			*progp = readl(bi->progmmio_addr +
-					j * sizeof(*progp));
+			*progp = readl(bi->progmmio_addr + j * sizeof(*progp));
 		}
 
 #ifdef PROGDUMP
@@ -1199,6 +1200,31 @@ bpfhv_programs_setup(struct bpfhv_info *bi)
 						insns, prog_len);
 		if (bi->progs[i] == NULL) {
 			goto out;
+		}
+	}
+
+	/* Read prog_data from the hypervisor. */
+	{
+		uint32_t* ptr = (uint32_t*)get_shared_mem();
+		size_t data_len, j, jmax;
+
+		if(unlikely(!ptr)) {
+			netif_err(
+				bi, drv, bi->netdev,
+				"bpfhv_programs_setup(...) -> get_shared_mem() returned 0 (Out of memory?)\n"
+			);
+			goto out;
+		}
+		writel(BPFHV_PROG_PROG_DATA, bi->regaddr + BPFHV_REG_PROG_SELECT);
+		data_len = readl(bi->regaddr + BPFHV_REG_PROG_SIZE);
+		data_len *= sizeof(struct bpf_insn);
+		if(unlikely(data_len == 0 || data_len > SHARED_MEMORY_SIZE)) {
+			printk(KERN_ERR "BPFHV_PROG_PROG_DATA not available!\n");
+		} else {
+			jmax = data_len / sizeof(*ptr);
+			for (j = 0; j < jmax; ++j, ++ptr) {
+				*ptr = readl(bi->progmmio_addr + j * sizeof(*ptr));
+			}
 		}
 	}
 
@@ -2171,6 +2197,7 @@ static int __init
 bpfhv_init(void)
 {
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
+	ebpf_mem_ini();
 	return pci_register_driver(&bpfhv_driver);
 }
 
@@ -2178,6 +2205,8 @@ static void __exit
 bpfhv_fini(void)
 {
 	pci_unregister_driver(&bpfhv_driver);
+	if(bpfhv_pkt)
+		kfree(bpfhv_pkt);
 	ebpf_mem_fini();
 }
 

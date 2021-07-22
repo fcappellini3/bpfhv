@@ -23,6 +23,7 @@ struct ebpf_memory_descriptor {
 };
 
 
+void ebpf_mem_ini(void);
 void ebpf_mem_fini(void);
 void* get_shared_mem(void);
 

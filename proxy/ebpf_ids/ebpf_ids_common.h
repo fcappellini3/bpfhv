@@ -3,7 +3,7 @@
 
 
 // Common dependencies
-#include "progs_commonn.h"
+#include "progs_common.h"
 #include "net_headers.h"
 #include <stdint.h>
 #include "bpf_utils.h"

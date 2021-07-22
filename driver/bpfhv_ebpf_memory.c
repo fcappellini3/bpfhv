@@ -9,9 +9,23 @@
 /* Driver - BPF program shared memory */
 static struct ebpf_memory_descriptor ebpf_memory = {0, 0};
 
+
+void
+ebpf_mem_ini(void) {
+    if(unlikely(ebpf_memory.shared_mem_buffer)) {
+        // In the rare case, for some reasons, ebpf_mem_ini(void) is called twice
+        return;
+    }
+    ebpf_memory.shared_mem_buffer = kmalloc(SHARED_MEMORY_SIZE, GFP_KERNEL);
+    if(unlikely(!ebpf_memory.shared_mem_buffer)) {
+    	printk(KERN_ERR "ebpf_mem_ini(...) -> ebpf_memory.shared_mem_buffer is null\n");
+    }
+    ebpf_memory.shared_mem_size = SHARED_MEMORY_SIZE;
+}
+
 void
 ebpf_mem_fini(void) {
-    if(ebpf_memory.shared_mem_buffer) {
+    if(likely(ebpf_memory.shared_mem_buffer)) {
 		kfree(ebpf_memory.shared_mem_buffer);
 		ebpf_memory.shared_mem_buffer = NULL;
 		ebpf_memory.shared_mem_size = 0;
@@ -20,13 +34,5 @@ ebpf_mem_fini(void) {
 
 void*
 get_shared_mem(void) {
-    if(unlikely(!ebpf_memory.shared_mem_buffer)) {
-		ebpf_memory.shared_mem_buffer = kmalloc(SHARED_MEMORY_SIZE, GFP_KERNEL);
-		if(unlikely(!ebpf_memory.shared_mem_buffer)) {
-			printk(KERN_ERR "get_shared_mem(...) -> ebpf_memory.shared_mem_buffer is null\n");
-			return 0;
-		}
-		ebpf_memory.shared_mem_size = SHARED_MEMORY_SIZE;
-	}
 	return ebpf_memory.shared_mem_buffer;
 }

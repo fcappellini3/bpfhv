@@ -6,6 +6,9 @@
 #include "auto_rules.h"
 
 
+__section("pdt")
+const char ciao[] = "Ciaooo!";
+
 /**
  * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
@@ -99,6 +102,7 @@ ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
     }
 
     // Return
+    //print_num(get_shared_memory(), 100);
     if(result == IDS_INVALID_PKT) {
         //print_num("Invalid packet", pkt_sz);
     } else if(result != IDS_PASS) {
