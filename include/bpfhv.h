@@ -139,7 +139,10 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_print_num,
 	BPFHV_FUNC_get_bpfhv_pkt,      // added for IDS
 	BPFHV_FUNC_get_shared_memory,  // added for IDS
-	BPFHV_FUNC_force_close_socket  // added for IDS
+	BPFHV_FUNC_get_flow,           // added for IDS
+	BPFHV_FUNC_create_flow,        // added for IDS
+	BPFHV_FUNC_delete_flow,        // added for IDS
+	BPFHV_FUNC_store_pkt           // added for IDS
 };
 
 #ifndef BPFHV_FUNC
@@ -335,8 +338,25 @@ enum {
  * The same approach is used here, there struct bpfhv_pkt is representing the current packet.
  */
 struct bpfhv_pkt {
-	void* raw_buff;
+	union {
+		void* raw_buff;
+		void* l2_header;
+		struct ethhdr* eth_header;
+	};
+	union {
+		void* l3_header;
+		struct iphdr* ip_header;
+		struct arphdr* arp_header;
+	};
+	union {
+		void* l4_header;
+		struct tcphdr* tcp_header;
+		struct udp_header* udp_header;
+		struct arpethbody* arp_body;
+	};
+	uint8_t* payload;
 	uint32_t len;
+	uint32_t payload_len;
 };
 
 #ifdef __cplusplus

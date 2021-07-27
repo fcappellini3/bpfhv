@@ -20,16 +20,45 @@ struct global global_ = {
             .cap_prot_index = 0,
             .payload_size = 5,
             .payload = {'H', 'T', 'T', 'P', '/'},
-            .action = DROP
+            .action = CAPTURE
         }
     },
     .cap_protos = {
         {
+            .payload_size = 7,
+            .ids_level = 9,
             .payload = {'/', 'b', 'a', 'd', '_', 'e', 'p'},
             .action = DROP_FLOW
         }
     }
 };
+
+
+/**
+ * Check a flow w.r.t. a struct ids_capture_protocol.
+ * return: true if flow match the condition of cap_prot, false otherwise.
+ */
+static __inline bool
+__check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
+    struct flow_iter iter;
+    struct flow_iter iter_copy;
+    byte* ptr;
+    uint32_t i;
+
+    for(ptr = iter_init(&iter, flow); ptr; ptr = iter_next(&iter)) {
+        iter_copy = iter;
+        for(i = 0; ptr && i < cap_prot->payload_size; ptr = iter_next(&iter_copy), ++i) {
+            if(*ptr != cap_prot->payload[i]) {
+                break;
+            }
+        }
+        if(i == cap_prot->payload_size && ptr) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 
 /**
@@ -42,64 +71,105 @@ struct global global_ = {
      byte* pkt_payload;
      uint32_t pkt_payload_size;
      struct ids_capture_protocol* cap_prot;
+     struct flow_id flow_id;
+     struct tcphdr* tcp_header;
+     struct udphdr* udp_header;
+     struct flow* flow;
+     char str[32];
+
+     // Debug
+     str[0]='D'; str[1]='e'; str[2]='e'; str[3]='p'; str[4]=' '; str[5]='s'; str[6]='c'; str[7]='a'; str[8]='n'; str[9]=0;
+     print_num(str, 0);
 
      // Get global memory
      struct global* global = get_shared_memory();
 
-     // Find packet payload
+     // Find packet payload and flow_id
      struct iphdr* ip_header = get_ip_header(pkt);
      if(ip_header->version != 4) {
          return IDS_PASS;
      }
+     flow_id.src_ip = ip_header->saddr;
+     flow_id.dest_ip = ip_header->daddr;
+     flow_id.protocol = ip_header->protocol;
      switch(ip_header->protocol) {
          case IPPROTO_UDP:
+             udp_header = get_udp_header(pkt);
+             flow_id.src_port = udp_header->source;
+             flow_id.dest_port = udp_header->dest;
              pkt_payload = get_udp_payload(pkt, &pkt_payload_size);
              break;
          case IPPROTO_TCP:
+             tcp_header = get_tcp_header(pkt);
+             flow_id.src_port = tcp_header->source;
+             flow_id.dest_port = tcp_header->dest;
              pkt_payload = get_tcp_payload(pkt, &pkt_payload_size);
              break;
-         case IPPROTO_ICMP:
-             return IDS_PASS;
          default:
-             return IDS_INVALID_PKT;
+             return IDS_PASS;
      }
      if(!pkt_payload)
         return IDS_INVALID_PKT;
 
-     // Scan: search for an "alarm payload" inside pkt_payload
-     for(alarm_index = 0; alarm_index < global->alarm_count; ++alarm_index) {
-         struct ids_alarm* alarm = &global->alarms[alarm_index];
-         uint32_t find_res = find(
-             pkt_payload, pkt_payload_size,
-             alarm->payload, alarm->payload_size
-         );
-         if(find_res != 0xFFFFFFFFU) {
-             // The current pkt match an alarm
-             char s[32]; s[0] = 'f'; s[1] = 'o'; s[2] = 'u'; s[3] = 'n'; s[4] = 'd'; s[5] = ' ';
-             s[6] = 'a'; s[7] = 't'; s[8] = 0;
-             print_num(s, find_res);
+     // Check if a flow already exists. If it exists we don't have to check for a matching payload,
+     // but if there is no flow, we have to search for a matching payload (and maybe start a new
+     // flow in case we found one).
+     flow = get_flow(&flow_id);
+     if(flow) {
+         str[0]='a'; str[1]=' '; str[2]='f'; str[3]='l'; str[4]='o'; str[5]='w'; str[6]=' '; str[7]='e'; str[8]='x'; str[9]='i'; str[10]='s'; str[11]='t'; str[12]='s'; str[13]='\n'; str[14]=0;
+         print_num(str, 0);
+         goto a_flow_exists;
+     } else {
+         // Scan: search for an "alarm payload" inside pkt_payload
+         for(alarm_index = 0; alarm_index < global->alarm_count; ++alarm_index) {
+             struct ids_alarm* alarm = &global->alarms[alarm_index];
+             uint32_t find_res = find(
+                 pkt_payload, pkt_payload_size,
+                 alarm->payload, alarm->payload_size
+             );
+             if(find_res != 0xFFFFFFFFU) {
+                 // The current pkt matched an alarm
+                 char s[32]; s[0] = 'f'; s[1] = 'o'; s[2] = 'u'; s[3] = 'n'; s[4] = 'd'; s[5] = ' ';
+                 s[6] = 'a'; s[7] = 't'; s[8] = 0;
+                 print_num(s, find_res);
 
-             bpf_memcpy(s, alarm->payload, alarm->payload_size);
-             s[alarm->payload_size] = 0;
-             print_num(s, alarm_index);
+                 bpf_memcpy(s, alarm->payload, alarm->payload_size);
+                 s[alarm->payload_size] = 0;
+                 print_num(s, alarm_index);
 
-             /*bpf_memcpy(s, pkt_payload + find_res, alarm->payload_size);
-             print_num(s, alarm_index);*/
+                 // If alarm->action is DROP, the packet must be immediatel dropped!
+                 if(alarm->action == DROP) {
+                     return IDS_LEVEL(10);
+                 }
 
-             bpf_memcpy(s, pkt_payload, 20);
-             s[20] = 0;
-             print_num(s, 0);
-
-             if(alarm->action == CAPTURE) {
+                 // Otherwise, let's chek for the capture protocol and procede to create a new flow
                  cap_prot = &global->cap_protos[alarm->cap_prot_index];
-             } else {  //alarm->action == DROP
-                 return IDS_LEVEL(10);
+                 flow = create_flow(&flow_id, false, 1*1024*1024);
+                 flow->reserved = cap_prot;
+                 str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='r'; str[7]='e'; str[8]='a'; str[9]='t'; str[10]='e'; str[11]='d'; str[12]=0;
+                 print_num(str, 0);
+                 if(!flow) {
+                     return IDS_LEVEL(10);
+                 }
+                 goto a_flow_exists;
              }
          }
+
+         // If no payloads were found and no flows were found, this packet is legit
+         //if(alarm_index >= global->alarm_count)
+         return IDS_PASS;
      }
 
-     // Apply cap_prot
-     return IDS_PASS;  // TODO
+     a_flow_exists:
+     // If I'm here a flow exists (because it was just created or because it was already existing).
+     // I have to add the current packet to the flow.
+     store_pkt(flow, pkt_payload, pkt_payload_size, false);
+     // Check the flow
+     cap_prot = (struct ids_capture_protocol*)flow->reserved;
+     if(__check_flow(flow, cap_prot)) {
+         return IDS_LEVEL(cap_prot->ids_level);
+     }
+     return IDS_PASS;
  }
 
 /**
@@ -121,10 +191,10 @@ __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
             return __auto_rules_tcp(pkt);
         case IPPROTO_TCP:
             return __auto_rules_udp(pkt);
-        case IPPROTO_ICMP:
-            return IDS_PASS;
+        /*case IPPROTO_ICMP:
+            return IDS_PASS;*/
         default:
-            return IDS_INVALID_PKT;
+            return IDS_PASS;
     }
 }
 
@@ -190,6 +260,8 @@ ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
         case ETH_P_IP:
             result = __ids_analyze_ip_pkt(pkt);
             break;
+        case ETH_P_IPV6:
+            return IDS_PASS;
         default:
             result = IDS_INVALID_PKT;
             break;

@@ -30,6 +30,7 @@
 
 #include "bpfhv.h"
 #include "bpfhv_ebpf_memory.h"
+#include "ids_flow.h"
 
 #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV|NETIF_MSG_PROBE|NETIF_MSG_LINK)
 static int debug = -1; /* use DEFAULT_MSG_ENABLE by default */
@@ -218,7 +219,7 @@ static const struct ethtool_ops bpfhv_ethtool_ops = {
 	.get_drvinfo = bpfhv_get_drvinfo,
 };
 
-struct bpfhv_pkt* bpfhv_pkt = 0;
+static struct bpfhv_pkt* bpfhv_pkt = 0;
 
 /* Return the features that driver and device support by working
  * together. */
@@ -929,6 +930,40 @@ BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
 /*
  * Additional BPF helper functions (IDS support)
 */
+struct arphdr {
+	uint16_t		ar_hrd;		/* format of hardware address	*/
+	uint16_t		ar_pro;		/* format of protocol address	*/
+	unsigned char	ar_hln;		/* length of hardware address	*/
+	unsigned char	ar_pln;		/* length of protocol address	*/
+	uint16_t		ar_op;		/* ARP opcode (command)		*/
+};
+
+struct arpethbody {
+	uint8_t ar_sha[6]; /* sender hardware address */
+	uint32_t  ar_sip;           /* sender IP address */
+	uint8_t ar_tha[6]; /* target hardware address */
+	uint32_t  ar_tip;           /* target IP address */
+};
+
+struct iphdr {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	uint8_t	ihl:4,
+		version:4;
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	uint8_t	version:4,
+		ihl:4;
+#endif
+	uint8_t	tos;
+	uint16_t	tot_len;
+	uint16_t	id;
+	uint16_t	frag_off;
+	uint8_t	ttl;
+	uint8_t	protocol;
+	uint16_t	check;
+	uint32_t	saddr;
+	uint32_t	daddr;
+	/*The options start here. */
+};
 
 BPF_CALL_1(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx)
 {
@@ -942,8 +977,58 @@ BPF_CALL_1(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx)
 		printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> skb is null\n");
 		return 0;
 	}
-	bpfhv_pkt->raw_buff = skb->data;
+	bpfhv_pkt->raw_buff = skb->data;  //l2_header and eth_header
 	bpfhv_pkt->len = skb->len;
+	/*switch(be16_to_cpu(bpfhv_pkt->eth_header->h_proto)) {
+        case ETH_P_IP:
+			if(unlikely(bpfhv_pkt->len < sizeof(struct ethhdr) + sizeof(struct iphdr))) {
+				printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->len (ETH_P_IP)\n");
+				return 0;
+			}
+			//bpfhv_pkt->ip_header = (struct iphdr*)(bpfhv_pkt->raw_buff + sizeof(struct ethhdr));
+			bpfhv_pkt->l3_header = skb_network_header(skb);
+			bpfhv_pkt->l4_header = skb_transport_header(skb);
+			if(unlikely(bpfhv_pkt->ip_header->version != 4)) {
+				printk(KERN_ERR "versione protocollo: %d\n", bpfhv_pkt->ip_header->version);
+				return 0;
+			}
+			switch (bpfhv_pkt->ip_header->protocol) {
+				case IPPROTO_UDP:
+		            bpfhv_pkt->payload = (uint8_t*)bpfhv_pkt->l4_header + sizeof(struct udphdr);
+					break;
+		        case IPPROTO_TCP:
+		            bpfhv_pkt->payload = (uint8_t*)bpfhv_pkt->l4_header + (bpfhv_pkt->tcp_header->doff << 2);
+					break;
+		        case IPPROTO_ICMP:
+		            return 0;
+		        default:
+					printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->ip_header->protocol\n");
+		            return 0;
+			}
+			bpfhv_pkt->payload_len = bpfhv_pkt->len - ((uintptr_t)bpfhv_pkt->payload - (uintptr_t)bpfhv_pkt->raw_buff);
+            break;
+        case ETH_P_IPV6:
+            return 0;
+		case ETH_P_ARP:
+            if(unlikely(
+				bpfhv_pkt->len < sizeof(struct ethhdr) +
+				sizeof(struct arphdr) + sizeof(struct arpethbody)
+			)) {
+				printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->len (ETH_P_ARP)\n");
+				return 0;
+			}
+			bpfhv_pkt->arp_header = (struct arphdr*)(bpfhv_pkt->raw_buff + sizeof(struct ethhdr));
+			bpfhv_pkt->arp_body = (struct arpethbody*)(
+				(uintptr_t)bpfhv_pkt->arp_header + sizeof(struct arphdr)
+			);
+			bpfhv_pkt->payload = 0;
+			bpfhv_pkt->payload_len = 0;
+			break;
+        default:
+			printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->eth_header->h_proto\n");
+            return 0;
+    }*/
+
 	return (uintptr_t)bpfhv_pkt;
 }
 
@@ -952,38 +1037,29 @@ BPF_CALL_0(bpf_hv_get_shared_memory)
 	return (uintptr_t)get_shared_mem();
 }
 
-/**
- * Ask the driver to close the socket related to ctx.
- * ctx: Pointer to the current bpfhv_rx_context
-*/
-BPF_CALL_1(bpf_hv_force_close_socket, struct bpfhv_rx_context *, ctx)
+BPF_CALL_1(bpf_hv_get_flow, struct flow_id*, flow_id)
 {
-	struct sk_buff *skb;
-	struct sock* sk;
-	struct socket* socket;
-	if(unlikely(ctx == NULL)) {
-		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> ctx is null\n");
-		return 0;
-	}
-	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
-	if(unlikely(skb == NULL)) {
-		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> skb is null\n");
-		return 0;
-	}
-	sk = skb->sk;
-	if(unlikely(sk == NULL)) {
-		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> sk is null\n");
-		return 0;
-	}
-	socket = sk->sk_socket;
-	if(unlikely(socket == NULL)) {
-		printk(KERN_ERR "bpf_hv_force_close_socket(...) -> socket is null\n");
-		return 0;
-	}
-	sock_release(socket);
-	printk(KERN_ERR "bpf_hv_force_close_socket(...) -> socket released\n");
-	return 1;
+	return (uintptr_t)get_flow(flow_id);
 }
+
+BPF_CALL_3(bpf_hv_create_flow, const struct flow_id*, flow_id, const bool, ordered,
+	       const uint32_t, max_size)
+{
+	return (uintptr_t)create_flow(flow_id, ordered, max_size);
+}
+
+BPF_CALL_1(bpf_hv_delete_flow, struct flow_id*, flow_id)
+{
+	return (uintptr_t)delete_flow(flow_id);
+}
+
+BPF_CALL_4(bpf_hv_store_pkt, struct flow*, flow, void*, buff, const uint32_t, len,
+	       const uint16_t, order)
+{
+	return (uintptr_t)store_pkt(flow, buff, len, order);
+}
+
+
 
 #undef PROGDUMP
 #ifdef PROGDUMP
@@ -1228,7 +1304,6 @@ bpfhv_programs_setup(struct bpfhv_info *bi)
 		}
 	}
 
-
 	/* Allocate the program contexts for transmit and receive operation. */
 	for (i = 0; i < bi->num_rx_queues; i++) {
 		struct bpfhv_rxq *rxq = bi->rxqs + i;
@@ -1327,8 +1402,17 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 		case BPFHV_FUNC_get_shared_memory:
 			func = bpf_hv_get_shared_memory;
 			break;
-		case BPFHV_FUNC_force_close_socket:
-			func = bpf_hv_force_close_socket;
+		case BPFHV_FUNC_get_flow:
+			func = bpf_hv_get_flow;
+			break;
+		case BPFHV_FUNC_create_flow:
+			func = bpf_hv_create_flow;
+			break;
+		case BPFHV_FUNC_delete_flow:
+			func = bpf_hv_delete_flow;
+			break;
+		case BPFHV_FUNC_store_pkt:
+			func = bpf_hv_store_pkt;
 			break;
 		default:
 			netif_err(bi, drv, bi->netdev,
@@ -1336,7 +1420,6 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 			return -EINVAL;
 			break;
 		}
-
 		insns->imm = func - __bpf_call_base;
 	}
 
@@ -2200,6 +2283,7 @@ bpfhv_init(void)
 {
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
 	ebpf_mem_ini();
+	ids_flow_ini();
 	return pci_register_driver(&bpfhv_driver);
 }
 
@@ -2210,9 +2294,11 @@ bpfhv_fini(void)
 	if(bpfhv_pkt)
 		kfree(bpfhv_pkt);
 	ebpf_mem_fini();
+	ids_flow_fini();
 }
 
 #include "bpfhv_ebpf_memory.c"
+#include "ids_flow.c"
 
 module_init(bpfhv_init);
 module_exit(bpfhv_fini);

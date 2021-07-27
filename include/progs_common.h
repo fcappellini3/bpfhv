@@ -4,6 +4,10 @@
 
 #include <stdint.h>
 
+// Define __EBPF__ to let the compiler include or not some features for those sources that are in
+// common with the eBPF program and the driver
+#define __EBPF__
+
 
 #ifndef __section
 # define __section(NAME)                  \
@@ -13,6 +17,26 @@
 #ifndef __inline
 # define __inline                         \
    inline __attribute__((always_inline))
+#endif
+
+
+// Data and data types //
+typedef uint8_t bool;
+typedef uint8_t byte;
+#ifndef true
+#define true 1U
+#endif
+#ifndef false
+#define false 0U
+#endif
+#ifndef NULL
+#define NULL ((void*)0)
+#endif
+#ifndef likely
+#define likely(x)           __builtin_expect((x), 1)
+#endif
+#ifndef unlikely
+#define unlikely(x)         __builtin_expect((x), 0)
 #endif
 
 

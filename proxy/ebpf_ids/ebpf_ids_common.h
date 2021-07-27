@@ -3,23 +3,20 @@
 
 
 // Common dependencies //
+#include <stdint.h>
 #include "progs_common.h"
 #include "net_headers.h"
-#include <stdint.h>
-
-
-// Data types //
-typedef uint8_t bool;
-typedef uint8_t byte;
-#define true 1
-#define false 0
+#include "ids_flow.h"
 
 
 // Helper functions //
 static struct bpfhv_pkt* BPFHV_FUNC(get_bpfhv_pkt, struct bpfhv_rx_context *ctx);
 static int BPFHV_FUNC(print_num, const char* str, long long int x);
 static void* BPFHV_FUNC(get_shared_memory);
-static uint32_t BPFHV_FUNC(force_close_socket, struct bpfhv_rx_context *ctx);
+static struct flow* BPFHV_FUNC(get_flow, struct flow_id* flow_id);
+static struct flow* BPFHV_FUNC(create_flow, const struct flow_id* flow_id, const bool ordered, const uint32_t max_size);
+static bool BPFHV_FUNC(delete_flow, const struct flow_id* flow_id);
+static uint32_t BPFHV_FUNC(store_pkt, struct flow* flow, void* buff, const uint32_t len, const uint16_t order);
 
 
 // Constants //
@@ -54,8 +51,10 @@ struct ids_alarm {
 };
 
 struct ids_capture_protocol {
-    byte payload[MAX_IDS_CAP_PROT_PAYLOAD_SIZE];
     enum ids_capture_protocol_action action;
+    uint32_t payload_size;
+    uint32_t ids_level;
+    byte payload[MAX_IDS_CAP_PROT_PAYLOAD_SIZE];
 };
 
 
@@ -110,7 +109,13 @@ get_arp_body(struct bpfhv_pkt* pkt) {
  */
  static __inline byte*
  get_ip_payload(struct bpfhv_pkt* pkt) {
-     return (byte*)pkt->raw_buff + sizeof(struct ethhdr) + sizeof(struct iphdr);
+     struct iphdr* ip_header = get_ip_header(pkt);
+     uint32_t jump = sizeof(struct ethhdr) + (ip_header->ihl << 2);
+     if(jump > pkt->len) {
+         return 0;
+     }
+     return (byte*)pkt->raw_buff + jump;
+     //return (byte*)pkt->raw_buff + sizeof(struct ethhdr) + sizeof(struct iphdr);
  }
 
 /**
@@ -140,7 +145,7 @@ get_udp_header(struct bpfhv_pkt* pkt) {
 static __inline byte*
 get_tcp_payload(struct bpfhv_pkt* pkt, uint32_t* payload_size) {
     struct tcphdr* tcp_header = get_tcp_header(pkt);
-    const uint32_t jump = sizeof(struct ethhdr) + sizeof(struct iphdr) + (tcp_header->doff << 2);
+    uint32_t jump = (uintptr_t)tcp_header - (uintptr_t)pkt->raw_buff + (tcp_header->doff << 2);
     if(jump > pkt->len) {
         if(payload_size)
             *payload_size = 0;
