@@ -115,7 +115,7 @@ create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t ma
 /**
  * Delete a flow and free memory
  */
-static bool delete_flow(const struct flow_id* flow_id);
+static bool delete_flow(struct flow_id* flow_id);
 
 /**
  * Store a struct flow_elem (a packet) into a flow.

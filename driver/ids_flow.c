@@ -20,13 +20,14 @@ DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
  */
 static void
 __print_flow_id(const struct flow_id* flow_id) {
+    flow_key_t flow_key = __flow_hash(flow_id);
     uint16_t s_port = be16_to_cpu(flow_id->src_port);
     uint16_t d_port = be16_to_cpu(flow_id->dest_port);
     printk(
-        KERN_ERR "flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d\n",
+        KERN_ERR "flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d, flow_key: %d\n",
         flow_id->src_ip & 0xFF, (flow_id->src_ip >> 8) & 0xFF, (flow_id->src_ip >> 16) & 0xFF, (flow_id->src_ip >> 24),
         flow_id->dest_ip & 0xFF, (flow_id->dest_ip >> 8) & 0xFF, (flow_id->dest_ip >> 16) & 0xFF, (flow_id->dest_ip >> 24),
-        s_port, d_port, flow_id->protocol
+        s_port, d_port, flow_id->protocol, flow_key
     );
 }
 
@@ -85,7 +86,7 @@ __alloc_flow_elem(void* buff, const uint32_t len, const uint16_t order) {
 static void
 __free_flow_elem(struct flow_elem* flow_elem) {
     // Check if flow_elem is NULL
-    if(unlikely(flow_elem)) {
+    if(unlikely(!flow_elem)) {
         printk(KERN_ERR "__free_flow_elem(...) -> called, but flow_elem is NULL\n");
         return;
     }
@@ -104,7 +105,7 @@ __free_flow(struct flow* flow) {
     struct flow_elem* flow_elem;
 
     // Check if flow_elem is NULL
-    if(unlikely(flow)) {
+    if(unlikely(!flow)) {
         printk(KERN_ERR "__free_flow(...) -> called, but flow is NULL\n");
         return;
     }
@@ -186,8 +187,7 @@ static struct flow*
 get_flow(const struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
-    __print_flow_id(flow_id);
-    printk(KERN_ERR "flow_key: %x\n", flow_key);
+    //__print_flow_id(flow_id);
 
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
@@ -232,12 +232,14 @@ create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t ma
  * Docstring in ids_flow.h
  */
 static bool
-delete_flow(const struct flow_id* flow_id) {
+delete_flow(struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
 
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
+            printk(KERN_ERR "delete_flow(...) -> deleating ->");
+            __print_flow_id(flow_id);
             // Terminate the flow and free memory
             __free_flow(cur->flow);
             // Remove the node from the hash table

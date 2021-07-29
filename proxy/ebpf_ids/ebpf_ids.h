@@ -75,6 +75,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      struct tcphdr* tcp_header;
      struct udphdr* udp_header;
      struct flow* flow;
+     uint32_t result;
      char str[32];
 
      // Debug
@@ -116,7 +117,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      // flow in case we found one).
      flow = get_flow(&flow_id);
      if(flow) {
-         str[0]='a'; str[1]=' '; str[2]='f'; str[3]='l'; str[4]='o'; str[5]='w'; str[6]=' '; str[7]='e'; str[8]='x'; str[9]='i'; str[10]='s'; str[11]='t'; str[12]='s'; str[13]='\n'; str[14]=0;
+         str[0]='a'; str[1]=' '; str[2]='f'; str[3]='l'; str[4]='o'; str[5]='w'; str[6]=' '; str[7]='e'; str[8]='x'; str[9]='i'; str[10]='s'; str[11]='t'; str[12]='s'; str[13]=0;
          print_num(str, 0);
          goto a_flow_exists;
      } else {
@@ -167,9 +168,18 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      // Check the flow
      cap_prot = (struct ids_capture_protocol*)flow->reserved;
      if(__check_flow(flow, cap_prot)) {
-         return IDS_LEVEL(cap_prot->ids_level);
+         result = IDS_LEVEL(cap_prot->ids_level);
+     } else {
+         result = IDS_PASS;
      }
-     return IDS_PASS;
+
+     // If the protocol is TCP and we have a TCP FIN, the current flow must be terminated and
+     // deallocated to free memory.
+     if(flow->flow_id.protocol == IPPROTO_TCP && tcp_header->fin) {
+         delete_flow(&flow->flow_id);
+     }
+
+     return result;
  }
 
 /**
