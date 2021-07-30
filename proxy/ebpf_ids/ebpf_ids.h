@@ -76,6 +76,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      struct udphdr* udp_header;
      struct flow* flow;
      uint32_t result;
+     uint32_t store_result;
      char str[32];
 
      // Debug
@@ -164,7 +165,14 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      a_flow_exists:
      // If I'm here a flow exists (because it was just created or because it was already existing).
      // I have to add the current packet to the flow.
-     store_pkt(flow, pkt_payload, pkt_payload_size, false);
+     store_result = store_pkt(
+         flow, pkt_payload, pkt_payload_size,
+         /*flow->flow_id.protocol == IPPROTO_TCP ? be32_to_cpu(tcp_header->seq) : */0  //order
+     );
+     if(store_result != STORE_PKT_SUCCESS) {
+         str[0]='s'; str[1]='t'; str[2]='o'; str[3]='r'; str[4]='e'; str[5]=' '; str[6]='r'; str[7]='e'; str[8]='s'; str[9]='u'; str[10]='l'; str[11]='t'; str[12]=0;
+         return IDS_PASS;
+     }
      // Check the flow
      cap_prot = (struct ids_capture_protocol*)flow->reserved;
      if(__check_flow(flow, cap_prot)) {

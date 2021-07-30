@@ -40,7 +40,7 @@ struct flow_elem {
     struct flow_elem* next;
     void* buff;
     uint32_t len;
-    uint16_t order;
+    uint32_t order;
 };
 
 
@@ -125,7 +125,7 @@ static bool delete_flow(struct flow_id* flow_id);
  * order: packet sequence number or other ordering policy
  * return: STORE_PKT_SUCCESS, STORE_PKT_ERROR or STORE_PKT_REJECTED
  */
-static uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint16_t order);
+static uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order);
 
 #endif
 

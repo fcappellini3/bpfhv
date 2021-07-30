@@ -259,7 +259,7 @@ delete_flow(struct flow_id* flow_id) {
  * Docstring in ids_flow.h
  */
 static uint32_t
-store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint16_t order) {
+store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order) {
     struct flow_elem* new_flow_elem;
 
     // If the flow is NULL raise an error

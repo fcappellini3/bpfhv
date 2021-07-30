@@ -1054,7 +1054,7 @@ BPF_CALL_1(bpf_hv_delete_flow, struct flow_id*, flow_id)
 }
 
 BPF_CALL_4(bpf_hv_store_pkt, struct flow*, flow, void*, buff, const uint32_t, len,
-	       const uint16_t, order)
+	       const uint32_t, order)
 {
 	return (uintptr_t)store_pkt(flow, buff, len, order);
 }
