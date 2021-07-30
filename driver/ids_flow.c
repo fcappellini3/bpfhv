@@ -15,6 +15,9 @@ struct h_node {
 DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 
 
+static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
+
+
 /**
  * HELP/DEBUG functions
  */
