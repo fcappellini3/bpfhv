@@ -1,10 +1,6 @@
-#if 0
 #include "bpfhv_ebpf_memory.h"
-#include <linux/types.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/slab.h>
-#endif
 
 /* Driver - BPF program shared memory */
 static struct ebpf_memory_descriptor ebpf_memory = {0, 0};
@@ -36,3 +32,7 @@ void*
 get_shared_mem(void) {
 	return ebpf_memory.shared_mem_buffer;
 }
+
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Federico Cappellini");

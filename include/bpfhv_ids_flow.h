@@ -2,15 +2,19 @@
 #define __IDS_FLOW_H__
 
 
-#ifdef __EBPF__
+/*
+ * When compiling user-space code include <stdint.h>,
+ * when compiling kernel-space code include <linux/types.h>
+ */
+#ifdef __KERNEL__
+#include <linux/types.h>
+#else  /* !__KERNEL__ */
 #include <stdint.h>
-#include "progs_common.h"
-#else
-typedef uint8_t byte;
-#endif
+#endif /* !__KERNEL__ */
 
 
 // Data types
+typedef uint8_t byte;
 typedef uint32_t ipv4_t;  // big endian 32 bit
 typedef uint32_t flow_key_t;
 #ifndef true
@@ -19,10 +23,18 @@ typedef uint32_t flow_key_t;
 #ifndef false
 #define false 0U
 #endif
+#ifndef NULL
+#define NULL ((void*)0)
 
 
 // Macros
-#define NEXT_TCP_ORDER(ord) (((ord) + 1) & 0b1111111111111)
+#endif
+#ifndef _likely
+#define _likely(x)           __builtin_expect((x), 1)
+#endif
+#ifndef _unlikely
+#define _unlikely(x)         __builtin_expect((x), 0)
+#endif
 #define STORE_PKT_SUCCESS  0
 #define STORE_PKT_ERROR    1
 #define STORE_PKT_REJECTED 2
@@ -96,26 +108,20 @@ void ids_flow_ini(void);
 void ids_flow_fini(void);
 
 /**
- * Compare 2 struct flow_id
- * return: true if the flow_ids are equal
- */
-static bool flow_id_equal(const struct flow_id* flow_a, const struct flow_id* flow_b);
-
-/**
  * Get a flow by its flow_id
  */
-static struct flow* get_flow(const struct flow_id* flow_id);
+struct flow* get_flow(const struct flow_id* flow_id);
 
 /**
  * Create a new flow
  */
-static struct flow*
+struct flow*
 create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t max_size);
 
 /**
  * Delete a flow and free memory
  */
-static bool delete_flow(struct flow_id* flow_id);
+bool delete_flow(struct flow_id* flow_id);
 
 /**
  * Store a struct flow_elem (a packet) into a flow.
@@ -125,9 +131,21 @@ static bool delete_flow(struct flow_id* flow_id);
  * order: packet sequence number or other ordering policy
  * return: STORE_PKT_SUCCESS, STORE_PKT_ERROR or STORE_PKT_REJECTED
  */
-static uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order);
+uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order);
 
 #endif
+
+/**
+ * Compare 2 struct flow_id
+ * return: true if the flow_ids are equal
+ */
+static __inline bool
+flow_id_equal(const struct flow_id* flow_a, const struct flow_id* flow_b) {
+    //return memcmp(flow_a, flow_b, sizeof(struct flow_id)) == 0;
+    return flow_a->src_ip == flow_b->src_ip && flow_a->dest_ip == flow_b->dest_ip &&
+           flow_a->src_port == flow_b->src_port && flow_a->dest_port == flow_b->dest_port &&
+           flow_a->protocol == flow_b->protocol;
+}
 
 /**
  * Initialization function for a struct flow_iter*.
@@ -138,7 +156,7 @@ static __inline byte*
 iter_init(struct flow_iter* iter, struct flow* flow) {
     iter->current_flow_elem = flow->head;
     iter->index = 0;
-    if(unlikely(!iter->current_flow_elem || !iter->current_flow_elem->len))
+    if(_unlikely(!iter->current_flow_elem || !iter->current_flow_elem->len))
         return NULL;
     return (byte*)iter->current_flow_elem->buff;
 }
@@ -154,7 +172,7 @@ iter_next(struct flow_iter* iter) {
 
     ++iter->index;
 
-    while(unlikely(iter->index >= iter->current_flow_elem->len)) {
+    while(_unlikely(iter->index >= iter->current_flow_elem->len)) {
         if(!iter->current_flow_elem->next)
             return NULL;
         iter->current_flow_elem = iter->current_flow_elem->next;

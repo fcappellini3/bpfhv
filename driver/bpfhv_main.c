@@ -30,7 +30,7 @@
 
 #include "bpfhv.h"
 #include "bpfhv_ebpf_memory.h"
-#include "ids_flow.h"
+#include "bpfhv_ids_flow.h"
 
 #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV|NETIF_MSG_PROBE|NETIF_MSG_LINK)
 static int debug = -1; /* use DEFAULT_MSG_ENABLE by default */
@@ -2296,9 +2296,6 @@ bpfhv_fini(void)
 	ebpf_mem_fini();
 	ids_flow_fini();
 }
-
-#include "bpfhv_ebpf_memory.c"
-#include "ids_flow.c"
 
 module_init(bpfhv_init);
 module_exit(bpfhv_fini);

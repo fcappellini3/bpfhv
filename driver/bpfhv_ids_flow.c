@@ -1,5 +1,7 @@
-#include "ids_flow.h"
+#include "bpfhv_ids_flow.h"
 #include <linux/hashtable.h> // hashtable API
+#include <linux/module.h>
+#include <linux/slab.h>
 
 
 #define HASH_TABLE_BIT_COUNT 4U
@@ -175,18 +177,7 @@ ids_flow_fini(void) {
 /**
  * Docstring in ids_flow.h
  */
-static inline bool
-flow_id_equal(const struct flow_id* flow_a, const struct flow_id* flow_b) {
-    //return memcmp(flow_a, flow_b, sizeof(struct flow_id)) == 0;
-    return flow_a->src_ip == flow_b->src_ip && flow_a->dest_ip == flow_b->dest_ip &&
-           flow_a->src_port == flow_b->src_port && flow_a->dest_port == flow_b->dest_port &&
-           flow_a->protocol == flow_b->protocol;
-}
-
-/**
- * Docstring in ids_flow.h
- */
-static struct flow*
+struct flow*
 get_flow(const struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
@@ -204,7 +195,7 @@ get_flow(const struct flow_id* flow_id) {
 /**
  * Docstring in ids_flow.h
  */
-static struct flow*
+struct flow*
 create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t max_size) {
     struct h_node* h_node;
 
@@ -234,7 +225,7 @@ create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t ma
 /**
  * Docstring in ids_flow.h
  */
-static bool
+bool
 delete_flow(struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
@@ -261,7 +252,7 @@ delete_flow(struct flow_id* flow_id) {
 /**
  * Docstring in ids_flow.h
  */
-static uint32_t
+uint32_t
 store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order) {
     struct flow_elem* new_flow_elem;
 
@@ -309,3 +300,6 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t orde
 
     return STORE_PKT_SUCCESS;
 }
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Federico Cappellini");

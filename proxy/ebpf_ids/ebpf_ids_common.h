@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "progs_common.h"
 #include "net_headers.h"
-#include "ids_flow.h"
+#include "bpfhv_ids_flow.h"
 
 
 // Helper functions //
