@@ -1,11 +1,13 @@
 #include "bpfhv_ids_flow.h"
-#include <linux/hashtable.h> // hashtable API
+#include <linux/hashtable.h>  // hashtable API
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/uio.h>  //iov_iter
 
 
 #define HASH_TABLE_BIT_COUNT 4U
 #define HASH_TABLE_SIZE (uint32_t)(1U << HASH_TABLE_BIT_COUNT)
+#define MIN(A, B) ((A) < (B) ? (A) : (B))
 
 
 struct h_node {
@@ -53,12 +55,12 @@ __flow_hash(const struct flow_id* flow_id) {
  * Allocate memory for a new struct flow, then initialize it.
  */
 static struct flow*
-__alloc_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t max_size) {
+__alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size) {
     struct flow* flow = kmalloc(sizeof(struct flow), GFP_KERNEL);
     memset(flow, 0, sizeof(*flow));
     flow->flow_id = *flow_id;
     flow->max_size = max_size;
-    flow->ordered = ordered;
+    flow->recording_enabled = recording_enabled;
     return flow;
 }
 
@@ -157,7 +159,6 @@ __pop_head_flow(struct flow* flow) {
 void
 ids_flow_ini(void) {
     hash_init(flow_hash_table);
-    printk(KERN_ERR "ids_flow_ini(void) -> Hello!\n");
 }
 
 /**
@@ -196,7 +197,7 @@ get_flow(const struct flow_id* flow_id) {
  * Docstring in ids_flow.h
  */
 struct flow*
-create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t max_size) {
+create_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size) {
     struct h_node* h_node;
 
     // Check if the flow already exists. If yes, raise a warning and return that flow.
@@ -208,7 +209,7 @@ create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t ma
 
     // Create the h_node and the flow
     h_node = kmalloc(sizeof(struct h_node), GFP_KERNEL);
-    flow = __alloc_flow(flow_id, ordered, max_size);
+    flow = __alloc_flow(flow_id, recording_enabled, max_size);
     if(unlikely(!flow || !h_node)) {
         printk(KERN_ERR "create_flow(...) -> out of memory!\n");
         return NULL;
@@ -217,6 +218,16 @@ create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t ma
 
     // Add the flow to the hash table
     hash_add(flow_hash_table, &h_node->node, __flow_hash(flow_id));
+
+    {
+        uint16_t s_port = be16_to_cpu(flow_id->src_port);
+        uint16_t d_port = be16_to_cpu(flow_id->dest_port);
+        printk(KERN_ERR "Flow created -> flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d\n",
+            flow_id->src_ip & 0xFF, (flow_id->src_ip >> 8) & 0xFF, (flow_id->src_ip >> 16) & 0xFF, (flow_id->src_ip >> 24),
+            flow_id->dest_ip & 0xFF, (flow_id->dest_ip >> 8) & 0xFF, (flow_id->dest_ip >> 16) & 0xFF, (flow_id->dest_ip >> 24),
+            s_port, d_port, flow_id->protocol
+        );
+    }
 
     // Return the flow
     return flow;
@@ -281,12 +292,6 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t orde
         return STORE_PKT_SUCCESS;
     }
 
-    // If the flow is not empty and has the ordered flag enabled, we have to check if this packet
-    // is in-order
-    /*if(flow->ordered && order != NEXT_TCP_ORDER(flow->tail->order)) {
-        return STORE_PKT_REJECTED;
-    }*/
-
     // Pop flow head untill there is sufficient room to store new_flow_elem
     while(flow->size + len > flow->max_size) {
         __pop_head_flow(flow);
@@ -299,6 +304,54 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t orde
     flow->size += len;
 
     return STORE_PKT_SUCCESS;
+}
+
+/**
+ * Docstring in ids_flow.h
+ */
+int
+inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, int flags) {
+    struct flow_id flow_id;
+    struct flow* flow;
+    struct sock *sk = sock->sk;
+	int addr_len = 0;
+	int err;
+
+	if(likely(!(flags & MSG_ERRQUEUE)))
+	   sock_rps_record_flow(sk);
+
+	err = sk->sk_prot->recvmsg(
+        sk, msg, size, flags & MSG_DONTWAIT, flags & ~MSG_DONTWAIT, &addr_len
+    );
+
+    if(err < 0)
+        return err;
+
+	msg->msg_namelen = addr_len;
+
+    // Check if current packet must be stored and, if yes, search its flow
+    if(!server_sock_to_flow_id(sk, &flow_id)) {
+        printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> sock_to_flow_id(...) failed\n");
+        return err;
+    }
+    flow = get_flow(&flow_id);
+    if(!flow || !flow->recording_enabled)
+        return err;
+    printk(KERN_ERR "BINGO!\n");
+
+    // Extract data from msghdr and store them
+    {
+        uint32_t i;
+        uint32_t size;
+        uint32_t remaining_size = (uint32_t)err;
+        for(i = 0; i < msg->msg_iter.nr_segs && remaining_size; ++i) {
+            size = MIN(msg->msg_iter.iov[i].iov_len, remaining_size);
+            store_pkt(flow, msg->msg_iter.iov[i].iov_base, size, 0);
+            remaining_size -= size;
+        }
+    }
+
+	return err;
 }
 
 MODULE_LICENSE("GPL");

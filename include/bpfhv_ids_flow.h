@@ -2,33 +2,19 @@
 #define __IDS_FLOW_H__
 
 
-/*
- * When compiling user-space code include <stdint.h>,
- * when compiling kernel-space code include <linux/types.h>
- */
-#ifdef __KERNEL__
-#include <linux/types.h>
-#else  /* !__KERNEL__ */
-#include <stdint.h>
-#endif /* !__KERNEL__ */
+#include "types.h"
+
+
+#ifndef __EBPF__
+#include <net/sock.h>
+#endif
 
 
 // Data types
-typedef uint8_t byte;
-typedef uint32_t ipv4_t;  // big endian 32 bit
 typedef uint32_t flow_key_t;
-#ifndef true
-#define true 1U
-#endif
-#ifndef false
-#define false 0U
-#endif
-#ifndef NULL
-#define NULL ((void*)0)
 
 
 // Macros
-#endif
 #ifndef _likely
 #define _likely(x)           __builtin_expect((x), 1)
 #endif
@@ -62,8 +48,8 @@ struct flow_elem {
 struct flow_id {
     ipv4_t src_ip;
     ipv4_t dest_ip;
-    uint16_t src_port;
-    uint16_t dest_port;
+    net_port_t src_port;
+    net_port_t dest_port;
     uint8_t protocol;
 }__attribute__((packed));
 
@@ -81,7 +67,7 @@ struct flow {
     uint32_t size;
     uint32_t max_size;
     uint32_t elem_count;
-    bool ordered;
+    bool recording_enabled;
 };
 
 
@@ -132,6 +118,56 @@ bool delete_flow(struct flow_id* flow_id);
  * return: STORE_PKT_SUCCESS, STORE_PKT_ERROR or STORE_PKT_REJECTED
  */
 uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order);
+
+/**
+ * Replacement for inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size, int flags).
+ * It does the same job, but store packets if needed
+ */
+int inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, int flags);
+
+/**
+ * Find the flow_id for a sock
+ * return: true in case of success, false otherwise
+ */
+static __inline bool
+sock_to_flow_id(const struct sock* sock, struct flow_id* flow_id) {
+    if(sock->sk_family != AF_INET) {
+        flow_id->src_ip = 0;
+        flow_id->dest_ip = 0;
+        flow_id->src_port = 0;
+        flow_id->dest_port = 0;
+        flow_id->protocol = 0;
+        return false;
+    }
+    flow_id->src_ip = sock->sk_addrpair >> 32;
+    flow_id->dest_ip = sock->sk_daddr;
+    flow_id->src_port = cpu_to_be16(sock->sk_portpair >> 16);
+    flow_id->dest_port = sock->sk_dport; //already big endian
+    flow_id->protocol = sock->sk_protocol;
+    return true;
+}
+
+/**
+ * Find the flow_id for a server sock
+ * return: true in case of success, false otherwise
+ */
+static __inline bool
+server_sock_to_flow_id(const struct sock* sock, struct flow_id* flow_id) {
+    if(sock->sk_family != AF_INET) {
+        flow_id->src_ip = 0;
+        flow_id->dest_ip = 0;
+        flow_id->src_port = 0;
+        flow_id->dest_port = 0;
+        flow_id->protocol = 0;
+        return false;
+    }
+    flow_id->src_ip = sock->sk_daddr;
+    flow_id->dest_ip = sock->sk_addrpair >> 32;
+    flow_id->src_port = sock->sk_dport; //already big endian
+    flow_id->dest_port = cpu_to_be16(sock->sk_portpair >> 16);
+    flow_id->protocol = sock->sk_protocol;
+    return true;
+}
 
 #endif
 

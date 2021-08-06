@@ -2,18 +2,10 @@
 #define __BPFHV_EBPF_MEMORY_H__
 
 
+#include "types.h"
+
+
 #define SHARED_MEMORY_SIZE 1048576 //1MiB
-
-
-/*
- * When compiling user-space code include <stdint.h>,
- * when compiling kernel-space code include <linux/types.h>
- */
-#ifdef __KERNEL__
-#include <linux/types.h>
-#else  /* !__KERNEL__ */
-#include <stdint.h>
-#endif /* !__KERNEL__ */
 
 
 /* Driver - BPF program shared memory */

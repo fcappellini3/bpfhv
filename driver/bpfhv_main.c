@@ -31,6 +31,7 @@
 #include "bpfhv.h"
 #include "bpfhv_ebpf_memory.h"
 #include "bpfhv_ids_flow.h"
+#include "bpfhv_kprobes.h"
 
 #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV|NETIF_MSG_PROBE|NETIF_MSG_LINK)
 static int debug = -1; /* use DEFAULT_MSG_ENABLE by default */
@@ -1042,10 +1043,10 @@ BPF_CALL_1(bpf_hv_get_flow, struct flow_id*, flow_id)
 	return (uintptr_t)get_flow(flow_id);
 }
 
-BPF_CALL_3(bpf_hv_create_flow, const struct flow_id*, flow_id, const bool, ordered,
+BPF_CALL_3(bpf_hv_create_flow, const struct flow_id*, flow_id, const bool, recording_enabled,
 	       const uint32_t, max_size)
 {
-	return (uintptr_t)create_flow(flow_id, ordered, max_size);
+	return (uintptr_t)create_flow(flow_id, recording_enabled, max_size);
 }
 
 BPF_CALL_1(bpf_hv_delete_flow, struct flow_id*, flow_id)
@@ -2284,6 +2285,7 @@ bpfhv_init(void)
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
 	ebpf_mem_ini();
 	ids_flow_ini();
+	bpfhv_kprobes_ini();
 	return pci_register_driver(&bpfhv_driver);
 }
 
@@ -2291,6 +2293,7 @@ static void __exit
 bpfhv_fini(void)
 {
 	pci_unregister_driver(&bpfhv_driver);
+	bpfhv_kprobes_fini();
 	if(bpfhv_pkt)
 		kfree(bpfhv_pkt);
 	ebpf_mem_fini();

@@ -79,10 +79,6 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      uint32_t store_result;
      char str[32];
 
-     // Debug
-     str[0]='D'; str[1]='e'; str[2]='e'; str[3]='p'; str[4]=' '; str[5]='s'; str[6]='c'; str[7]='a'; str[8]='n'; str[9]=0;
-     print_num(str, 0);
-
      // Get global memory
      struct global* global = get_shared_memory();
 
@@ -146,13 +142,11 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
 
                  // Otherwise, let's chek for the capture protocol and procede to create a new flow
                  cap_prot = &global->cap_protos[alarm->cap_prot_index];
-                 flow = create_flow(&flow_id, false, 1*1024*1024);
-                 flow->reserved = cap_prot;
-                 str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='r'; str[7]='e'; str[8]='a'; str[9]='t'; str[10]='e'; str[11]='d'; str[12]=0;
-                 print_num(str, 0);
+                 flow = create_flow(&flow_id, true, 1*1024*1024);
                  if(!flow) {
                      return IDS_LEVEL(10);
                  }
+                 flow->reserved = cap_prot;
                  goto a_flow_exists;
              }
          }
@@ -165,9 +159,9 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      a_flow_exists:
      // If I'm here a flow exists (because it was just created or because it was already existing).
      // I have to add the current packet to the flow.
-     store_result = store_pkt(
+     /*store_result = store_pkt(
          flow, pkt_payload, pkt_payload_size,
-         /*flow->flow_id.protocol == IPPROTO_TCP ? be32_to_cpu(tcp_header->seq) : */0  //order
+         0
      );
      if(store_result != STORE_PKT_SUCCESS) {
          str[0]='s'; str[1]='t'; str[2]='o'; str[3]='r'; str[4]='e'; str[5]=' '; str[6]='r'; str[7]='e'; str[8]='s'; str[9]='u'; str[10]='l'; str[11]='t'; str[12]=0;
@@ -179,7 +173,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
          result = IDS_LEVEL(cap_prot->ids_level);
      } else {
          result = IDS_PASS;
-     }
+     }*/
 
      // If the protocol is TCP and we have a TCP FIN, the current flow must be terminated and
      // deallocated to free memory.
@@ -187,7 +181,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
          delete_flow(&flow->flow_id);
      }
 
-     return result;
+     return IDS_PASS;
  }
 
 /**
