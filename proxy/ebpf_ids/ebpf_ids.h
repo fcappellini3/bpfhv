@@ -66,7 +66,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL and to be a valid ip packet.
  */
  static __inline uint32_t
- __ids_deep_scan(struct bpfhv_pkt* pkt) {
+ __ids_deep_scan(struct bpfhv_rx_context* ctx, struct bpfhv_pkt* pkt) {
      uint32_t alarm_index;
      byte* pkt_payload;
      uint32_t pkt_payload_size;
@@ -140,7 +140,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
 
                  // Otherwise, let's chek for the capture protocol and procede to create a new flow
                  cap_prot = &global->cap_protos[alarm->cap_prot_index];
-                 flow = create_flow(&flow_id, true, 1*1024*1024);
+                 flow = create_flow(&flow_id, true, 1*1024*1024, ctx);
                  if(!flow) {
                      return IDS_LEVEL(10);
                  }
@@ -230,7 +230,7 @@ __ids_l2_rules(struct bpfhv_pkt* pkt) {
  * return: IDS analyzis resulting level
  */
 static __inline uint32_t
-ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
+ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx, struct bpfhv_pkt* pkt) {
     // Check if the packet is valid before everything else
     if(invalid_eth_pkt(pkt)) {
         return IDS_INVALID_PKT;
@@ -267,7 +267,7 @@ ids_analyze_eth_pkt(struct bpfhv_pkt* pkt) {
     // In case the previous analyzes returned IDS_PASS and the current packet is an IP packet, it
     // has to be object of a deep scan
     if(proto == ETH_P_IP)
-        result = __ids_deep_scan(pkt);
+        result = __ids_deep_scan(ctx, pkt);
 
     return result;
 }
@@ -284,7 +284,7 @@ ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
     if(!pkt)
         return IDS_PASS;
 
-    level = ids_analyze_eth_pkt(pkt);
+    level = ids_analyze_eth_pkt(ctx, pkt);
 
     // Print some info
     if(level != IDS_PASS) {
@@ -304,7 +304,7 @@ ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
 /**
  * Check a flow
  */
-__section("chf")
+__section("extra0")
 uint32_t
 check_flow(struct flow* flow) {
     struct ids_capture_protocol* cap_prot = (struct ids_capture_protocol*)flow->reserved;

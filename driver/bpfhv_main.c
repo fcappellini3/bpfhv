@@ -1043,10 +1043,12 @@ BPF_CALL_1(bpf_hv_get_flow, struct flow_id*, flow_id)
 	return (uintptr_t)get_flow(flow_id);
 }
 
-BPF_CALL_3(bpf_hv_create_flow, const struct flow_id*, flow_id, const bool, recording_enabled,
-	       const uint32_t, max_size)
+BPF_CALL_4(bpf_hv_create_flow, const struct flow_id*, flow_id, const bool, recording_enabled,
+	       const uint32_t, max_size, struct bpfhv_rx_context *, ctx)
 {
-	return (uintptr_t)create_flow(flow_id, recording_enabled, max_size);
+	struct bpfhv_rxq* rxq = RXQ_FROM_CTX(ctx);
+	struct bpfhv_info* owner_bpfhv_info = rxq->bi;
+	return (uintptr_t)create_flow(flow_id, recording_enabled, max_size, owner_bpfhv_info);
 }
 
 BPF_CALL_1(bpf_hv_delete_flow, struct flow_id*, flow_id)
@@ -1095,7 +1097,8 @@ static bool
 prog_is_optional(unsigned int prog_idx)
 {
 	return prog_idx == BPFHV_PROG_RX_POSTPROC ||
-		prog_idx == BPFHV_PROG_TX_PREPROC;
+	       prog_idx == BPFHV_PROG_TX_PREPROC ||
+		   (prog_idx >= BPFHV_PROG_EXTRA_0 && prog_idx < BPFHV_PROG_MAX);
 }
 
 static const char *
@@ -1122,6 +1125,22 @@ progname_from_idx(unsigned int prog_idx)
 		return "txr";
 	case BPFHV_PROG_TX_PREPROC:
 		return "txh";
+	case BPFHV_PROG_EXTRA_0:
+		return "extra0";
+	case BPFHV_PROG_EXTRA_1:
+		return "extra1";
+	case BPFHV_PROG_EXTRA_2:
+		return "extra2";
+	case BPFHV_PROG_EXTRA_3:
+		return "extra3";
+	case BPFHV_PROG_EXTRA_4:
+		return "extra4";
+	case BPFHV_PROG_EXTRA_5:
+		return "extra5";
+	case BPFHV_PROG_EXTRA_6:
+		return "extra6";
+	case BPFHV_PROG_EXTRA_7:
+		return "extra7";
 	case BPFHV_PROG_PROG_DATA:
 		return "pdt";
 	default:

@@ -55,9 +55,11 @@ __flow_hash(const struct flow_id* flow_id) {
  * Allocate memory for a new struct flow, then initialize it.
  */
 static struct flow*
-__alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size) {
+__alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size,
+             struct bpfhv_info* owner_bpfhv_info) {
     struct flow* flow = kmalloc(sizeof(struct flow), GFP_KERNEL);
     memset(flow, 0, sizeof(*flow));
+    flow->owner_bpfhv_info = owner_bpfhv_info;
     flow->flow_id = *flow_id;
     flow->max_size = max_size;
     flow->recording_enabled = recording_enabled;
@@ -196,7 +198,8 @@ get_flow(const struct flow_id* flow_id) {
  * Docstring in ids_flow.h
  */
 struct flow*
-create_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size) {
+create_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size,
+            struct bpfhv_info* owner_bpfhv_info) {
     struct h_node* h_node;
 
     // Check if the flow already exists. If yes, raise a warning and return that flow.
@@ -208,7 +211,7 @@ create_flow(const struct flow_id* flow_id, const bool recording_enabled, const u
 
     // Create the h_node and the flow
     h_node = kmalloc(sizeof(struct h_node), GFP_KERNEL);
-    flow = __alloc_flow(flow_id, recording_enabled, max_size);
+    flow = __alloc_flow(flow_id, recording_enabled, max_size, owner_bpfhv_info);
     if(unlikely(!flow || !h_node)) {
         printk(KERN_ERR "create_flow(...) -> out of memory!\n");
         return NULL;
@@ -323,8 +326,9 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         sk, msg, size, flags & MSG_DONTWAIT, flags & ~MSG_DONTWAIT, &addr_len
     );
 
-    if(err < 0)
+    if(err < 0) {
         return err;
+    }
 
 	msg->msg_namelen = addr_len;
 
@@ -360,7 +364,14 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     }
 
     // Let the BPF program check the flow
-    //call_bpf_program_check_flow(flow);
+    /*{
+        uint32_t flow_check_result;
+        if(!flow->owner_bpfhv_info->progs[BPFHV_PROG_EXTRA_0]) {
+            return err;
+        }
+        flow_check_result = BPF_PROG_RUN(flow->owner_bpfhv_info->progs[BPFHV_PROG_EXTRA_0]);
+        printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
+    }*/
 
 	return err;
 }

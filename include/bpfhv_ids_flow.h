@@ -61,6 +61,7 @@ struct flow_id {
 struct flow {
     struct flow_elem* head;
     struct flow_elem* tail;
+    struct bpfhv_info* owner_bpfhv_info;
     void* reserved;
     struct flow_id flow_id;
     uint32_t size;
@@ -101,7 +102,7 @@ struct flow* get_flow(const struct flow_id* flow_id);
  * Create a new flow
  */
 struct flow*
-create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t max_size);
+create_flow(const struct flow_id* flow_id, const bool ordered, const uint32_t max_size, struct bpfhv_info* owner_bpfhv_info);
 
 /**
  * Delete a flow and free memory

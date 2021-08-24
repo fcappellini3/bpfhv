@@ -22,6 +22,9 @@ static struct kprobe kp_inet_recvmsg = {
 	.symbol_name	= "inet_recvmsg",
 };
 
+static struct kprobe kp_inet_release = {
+	.symbol_name	= "inet_release",
+};
 
 /**
  * kprobe pre_handler: called just before the probed instruction is executed.
@@ -36,33 +39,34 @@ __kp_inet_recvmsg_pre_handler(struct kprobe *p, struct pt_regs *regs) {
     return 1;
 }
 
-/**
- * kprobe post_handler: called after the probed instruction is executed
- * probed function ->
- *     int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size, int flags);
- * TO DEBUG:
- * printk(
- *     KERN_ERR "__kp_inet_recvmsg_post_handler: p->addr = 0x%p, flags = 0x%lx\n",
- *     p->addr, regs->flags
- * );
- */
-/*static void
-__kp_inet_recvmsg_post_handler(struct kprobe *p, struct pt_regs *regs, unsigned long flags) {
-
-}*/
 
 /*
  * fault_handler: this is called if an exception is generated for any instruction within the pre-
  * or post-handler, or when Kprobes single-steps the probed instruction.
  */
 static int
-__kp_inet_recvmsg_fault_handler(struct kprobe *p, struct pt_regs *regs, int trapnr) {
+__kp_null_fault_handler(struct kprobe *p, struct pt_regs *regs, int trapnr) {
 	printk(
-		KERN_ERR "__kp_inet_recvmsg_fault_handler: p->addr = 0x%p, trap #%dn",
+		KERN_ERR "__kp_null_fault_handler: p->addr = 0x%p, trap #%dn",
 		p->addr, trapnr
 	);
 	// Return 0 because we don't handle the fault
 	return 0;
+}
+
+
+/**
+ * kprobe pre_handler: called just before the probed instruction is executed.
+ * probed function ->
+ *     int inet_release(struct socket *sock)
+ * This pre_handler aims to replace inet_release(...).
+ */
+static int
+__kp_inet_release_pre_handler(struct kprobe *p, struct pt_regs *regs) {
+    //struct socket* socket = (struct socket*)(uintptr_t)regs->di;
+    //struct sock *sk = socket->sk;
+    //printk(KERN_ERR "__kp_inet_release_pre_handler(...) called -> %lx\n", (uintptr_t)sk);
+    return 0;
 }
 
 
@@ -72,14 +76,21 @@ __kp_inet_recvmsg_fault_handler(struct kprobe *p, struct pt_regs *regs, int trap
 bool
 bpfhv_kprobes_ini(void) {
     int ret;
+
     kp_inet_recvmsg.pre_handler = __kp_inet_recvmsg_pre_handler;
-    //kp_inet_recvmsg.post_handler = __kp_inet_recvmsg_post_handler;
-    kp_inet_recvmsg.fault_handler = __kp_inet_recvmsg_fault_handler;
+    kp_inet_recvmsg.fault_handler = __kp_null_fault_handler;
+    kp_inet_release.pre_handler = __kp_inet_release_pre_handler;
+    kp_inet_release.fault_handler = __kp_null_fault_handler;
 
     ret = register_kprobe(&kp_inet_recvmsg);
+    if(ret < 0) {
+        printk(KERN_ERR "register_kprobe kp_inet_recvmsg failed, returned %d\n", ret);
+        return false;
+    }
 
-    if (ret < 0) {
-        printk(KERN_ERR "register_kprobe failed, returned %d\n", ret);
+    ret = register_kprobe(&kp_inet_release);
+    if(ret < 0) {
+        printk(KERN_ERR "register_kprobe kp_inet_release failed, returned %d\n", ret);
         return false;
     }
 
@@ -96,3 +107,24 @@ bpfhv_kprobes_fini(void) {
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Federico Cappellini");
+
+
+
+
+
+
+
+/**
+ * kprobe post_handler: called after the probed instruction is executed
+ * probed function ->
+ *     int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size, int flags);
+ * TO DEBUG:
+ * printk(
+ *     KERN_ERR "__kp_inet_recvmsg_post_handler: p->addr = 0x%p, flags = 0x%lx\n",
+ *     p->addr, regs->flags
+ * );
+ */
+/*static void
+__kp_inet_recvmsg_post_handler(struct kprobe *p, struct pt_regs *regs, unsigned long flags) {
+
+}*/
