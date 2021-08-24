@@ -16,7 +16,7 @@ static void* BPFHV_FUNC(get_shared_memory);
 static struct flow* BPFHV_FUNC(get_flow, struct flow_id* flow_id);
 static struct flow* BPFHV_FUNC(create_flow, const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size);
 static bool BPFHV_FUNC(delete_flow, struct flow_id* flow_id);
-static uint32_t BPFHV_FUNC(store_pkt, struct flow* flow, void* buff, const uint32_t len, const uint32_t order);
+static uint32_t BPFHV_FUNC(store_pkt, struct flow* flow, void* buff, const uint32_t len);
 
 
 // Constants //

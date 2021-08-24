@@ -75,8 +75,6 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      struct tcphdr* tcp_header;
      struct udphdr* udp_header;
      struct flow* flow;
-     uint32_t result;
-     uint32_t store_result;
      char str[32];
 
      // Get global memory
@@ -152,29 +150,11 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
          }
 
          // If no payloads were found and no flows were found, this packet is legit
-         //if(alarm_index >= global->alarm_count)
          return IDS_PASS;
      }
 
      a_flow_exists:
      // If I'm here a flow exists (because it was just created or because it was already existing).
-     // I have to add the current packet to the flow.
-     /*store_result = store_pkt(
-         flow, pkt_payload, pkt_payload_size,
-         0
-     );
-     if(store_result != STORE_PKT_SUCCESS) {
-         str[0]='s'; str[1]='t'; str[2]='o'; str[3]='r'; str[4]='e'; str[5]=' '; str[6]='r'; str[7]='e'; str[8]='s'; str[9]='u'; str[10]='l'; str[11]='t'; str[12]=0;
-         return IDS_PASS;
-     }
-     // Check the flow
-     cap_prot = (struct ids_capture_protocol*)flow->reserved;
-     if(__check_flow(flow, cap_prot)) {
-         result = IDS_LEVEL(cap_prot->ids_level);
-     } else {
-         result = IDS_PASS;
-     }*/
-
      // If the protocol is TCP and we have a TCP FIN, the current flow must be terminated and
      // deallocated to free memory.
      if(flow->flow_id.protocol == IPPROTO_TCP && tcp_header->fin) {
@@ -321,5 +301,18 @@ ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
     return level;
 }
 
+/**
+ * Check a flow
+ */
+__section("chf")
+uint32_t
+check_flow(struct flow* flow) {
+    struct ids_capture_protocol* cap_prot = (struct ids_capture_protocol*)flow->reserved;
+    if(__check_flow(flow, cap_prot)) {
+        return IDS_LEVEL(cap_prot->ids_level);
+    } else {
+        return IDS_PASS;
+    }
+}
 
 #endif

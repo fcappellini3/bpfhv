@@ -68,7 +68,7 @@ __alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const 
  * Allocate memory for a new struct flow_elem, then initialize it.
  */
 static struct flow_elem*
-__alloc_flow_elem(void* buff, const uint32_t len, const uint16_t order) {
+__alloc_flow_elem(void* buff, const uint32_t len) {
     struct flow_elem* flow_elem = kmalloc(sizeof(struct flow_elem), GFP_KERNEL);
     if(unlikely(!flow_elem)) {
         printk(KERN_ERR "__alloc_flow_elem(...) -> out of memory!");
@@ -76,7 +76,6 @@ __alloc_flow_elem(void* buff, const uint32_t len, const uint16_t order) {
     }
     flow_elem->next = NULL;
     flow_elem->len = len;
-    flow_elem->order = order;
     flow_elem->buff = kmalloc(len, GFP_KERNEL);
     if(unlikely(!flow_elem->buff)) {
         printk(KERN_ERR "__alloc_flow_elem(...) -> out of memory!");
@@ -264,7 +263,7 @@ delete_flow(struct flow_id* flow_id) {
  * Docstring in ids_flow.h
  */
 uint32_t
-store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order) {
+store_pkt(struct flow* flow, void* buff, const uint32_t len) {
     struct flow_elem* new_flow_elem;
 
     // If the flow is NULL raise an error
@@ -280,7 +279,7 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t orde
     }
 
     // Create the new struct flow_elem
-    new_flow_elem = __alloc_flow_elem(buff, len, order);
+    new_flow_elem = __alloc_flow_elem(buff, len);
     if(unlikely(!new_flow_elem))
         return STORE_PKT_ERROR;
 
@@ -329,6 +328,9 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
 
 	msg->msg_namelen = addr_len;
 
+    if(err == 0)
+        return err;
+
     // Check if current packet must be stored and, if yes, search its flow
     if(!server_sock_to_flow_id(sk, &flow_id)) {
         printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> sock_to_flow_id(...) failed\n");
@@ -344,12 +346,21 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         uint32_t i;
         uint32_t size;
         uint32_t remaining_size = (uint32_t)err;
+        uint32_t store_result;
         for(i = 0; i < msg->msg_iter.nr_segs && remaining_size; ++i) {
             size = MIN(msg->msg_iter.iov[i].iov_len, remaining_size);
-            store_pkt(flow, msg->msg_iter.iov[i].iov_base, size, 0);
+            store_result = store_pkt(flow, msg->msg_iter.iov[i].iov_base, size);
+            if(unlikely(store_result != STORE_PKT_SUCCESS)) {
+                // handle error
+                printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> store_result != STORE_PKT_SUCCESS\n");
+                return err;
+            }
             remaining_size -= size;
         }
     }
+
+    // Let the BPF program check the flow
+    //call_bpf_program_check_flow(flow);
 
 	return err;
 }

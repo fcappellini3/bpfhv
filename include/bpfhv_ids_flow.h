@@ -38,7 +38,6 @@ struct flow_elem {
     struct flow_elem* next;
     void* buff;
     uint32_t len;
-    uint32_t order;
 };
 
 
@@ -114,10 +113,9 @@ bool delete_flow(struct flow_id* flow_id);
  * flow: the flow in which the packet has to be stored.
  * buff: packet data (you may want to store only the payload)
  * len: packet len (related to data)
- * order: packet sequence number or other ordering policy
  * return: STORE_PKT_SUCCESS, STORE_PKT_ERROR or STORE_PKT_REJECTED
  */
-uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len, const uint32_t order);
+uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len);
 
 /**
  * Replacement for inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size, int flags).
