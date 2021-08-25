@@ -2288,6 +2288,11 @@ static struct pci_device_id bpfhv_device_table[] = {
 
 MODULE_DEVICE_TABLE(pci, bpfhv_device_table);
 
+uint32_t
+run_bpfhv_prog(struct bpfhv_info* bi, const uint32_t index, void* arg) {
+	return BPF_PROG_RUN(bi->progs[index], arg);
+}
+
 /* PCI driver information. */
 static struct pci_driver bpfhv_driver = {
 	.name       = "bpfhv",

@@ -1,8 +1,9 @@
 #include "bpfhv_ids_flow.h"
+#include "bpfhv.h"
 #include <linux/hashtable.h>  // hashtable API
 #include <linux/module.h>
 #include <linux/slab.h>
-#include <linux/uio.h>  //iov_iter
+#include <linux/uio.h>  // iov_iter
 
 
 #define HASH_TABLE_BIT_COUNT 4U
@@ -19,6 +20,7 @@ struct h_node {
 DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 
 
+uint32_t run_bpfhv_prog(struct bpfhv_info* bi, const uint32_t index, void* arg);
 static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 
 
@@ -343,7 +345,6 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     flow = get_flow(&flow_id);
     if(!flow || !flow->recording_enabled)
         return err;
-    printk(KERN_ERR "BINGO!\n");
 
     // Extract data from msghdr and store them
     {
@@ -364,17 +365,15 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     }
 
     // Let the BPF program check the flow
-    /*{
+    {
         uint32_t flow_check_result;
-        if(!flow->owner_bpfhv_info->progs[BPFHV_PROG_EXTRA_0]) {
-            return err;
-        }
-        flow_check_result = BPF_PROG_RUN(flow->owner_bpfhv_info->progs[BPFHV_PROG_EXTRA_0]);
+        flow_check_result = run_bpfhv_prog(flow->owner_bpfhv_info, BPFHV_PROG_EXTRA_0, flow);
         printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
-    }*/
+    }
 
 	return err;
 }
+
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Federico Cappellini");
