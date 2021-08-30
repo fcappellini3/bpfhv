@@ -2288,9 +2288,24 @@ static struct pci_device_id bpfhv_device_table[] = {
 
 MODULE_DEVICE_TABLE(pci, bpfhv_device_table);
 
+/**
+ * Run a BPFHV program from bi
+ */
 uint32_t
 run_bpfhv_prog(struct bpfhv_info* bi, const uint32_t index, void* arg) {
 	return BPF_PROG_RUN(bi->progs[index], arg);
+}
+
+/**
+ * Send a signal to the hypervisor (write value to the signal register)
+ * value: signal value
+ */
+void
+send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const uint32_t value) {
+	writel(
+		value,
+		bi->regaddr + BPFHV_REG_HYPERVISOR_SIGNAL_0 + (4 * signal)
+	);
 }
 
 /* PCI driver information. */

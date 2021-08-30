@@ -327,15 +327,18 @@ enum {
 #define		BPFHV_REG_DUMP_INPUT	84
 #define		BPFHV_REG_DUMP_OFS	88
 
+/* Hypervisor signal */
+#define BPFHV_REG_HYPERVISOR_SIGNAL_0 92
+
 /* Marker for the end of valid registers, and size of the I/O region. */
-#define BPFHV_REG_END			92
+#define BPFHV_REG_END			96
 #define BPFHV_REG_MASK			0xff
 
-/* BPF return code */
+/* BPF return code (IDS) */
 #define BPFHV_PROG_RX_POSTPROC_OK       0
 #define BPFHV_PROG_RX_POSTPROC_PKT_DROP 1
 
-/*
+/**
  * bpfhv_tx_context and bpfhv_rx_context has a reference to the current sk_buff, but the BPF
  * program can not use it since it can not know the current definition of struct sk_buff.
  * This limitation makes our BPF program unable to perform (deep) packet inspection that is
@@ -366,6 +369,12 @@ struct bpfhv_pkt {
 	uint32_t len;
 	uint32_t payload_len;
 };
+
+/**
+ * Send a signal to the hypervisor (write value to the signal register)
+ * value: signal value
+ */
+//void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const uint32_t value);
 
 #ifdef __cplusplus
 }

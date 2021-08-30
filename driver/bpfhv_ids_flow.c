@@ -22,6 +22,7 @@ DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 
 uint32_t run_bpfhv_prog(struct bpfhv_info* bi, const uint32_t index, void* arg);
 static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
+void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const uint32_t value);
 
 
 /**
@@ -369,6 +370,9 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         uint32_t flow_check_result;
         flow_check_result = run_bpfhv_prog(flow->owner_bpfhv_info, BPFHV_PROG_EXTRA_0, flow);
         printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
+        if(flow_check_result) {
+            send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);
+        }
     }
 
 	return err;
