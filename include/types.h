@@ -28,4 +28,11 @@ typedef uint16_t net_port_t;  // big endian 16 bit
 #endif
 
 
+// Macros
+#ifndef __inline
+#define __inline \
+   inline __attribute__((always_inline))
+#endif
+
+
 #endif

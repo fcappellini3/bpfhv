@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "progs_common.h"
 #include "net_headers.h"
+#include "bpfhv_pkt.h"
 #include "bpfhv_ids_flow.h"
 
 

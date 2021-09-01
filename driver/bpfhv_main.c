@@ -32,6 +32,7 @@
 #include "bpfhv_ebpf_memory.h"
 #include "bpfhv_ids_flow.h"
 #include "bpfhv_kprobes.h"
+#include "bpfhv_pkt.h"
 
 #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV|NETIF_MSG_PROBE|NETIF_MSG_LINK)
 static int debug = -1; /* use DEFAULT_MSG_ENABLE by default */
@@ -931,106 +932,23 @@ BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
 /*
  * Additional BPF helper functions (IDS support)
 */
-struct arphdr {
-	uint16_t		ar_hrd;		/* format of hardware address	*/
-	uint16_t		ar_pro;		/* format of protocol address	*/
-	unsigned char	ar_hln;		/* length of hardware address	*/
-	unsigned char	ar_pln;		/* length of protocol address	*/
-	uint16_t		ar_op;		/* ARP opcode (command)		*/
-};
-
-struct arpethbody {
-	uint8_t ar_sha[6]; /* sender hardware address */
-	uint32_t  ar_sip;           /* sender IP address */
-	uint8_t ar_tha[6]; /* target hardware address */
-	uint32_t  ar_tip;           /* target IP address */
-};
-
-struct iphdr {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-	uint8_t	ihl:4,
-		version:4;
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-	uint8_t	version:4,
-		ihl:4;
-#endif
-	uint8_t	tos;
-	uint16_t	tot_len;
-	uint16_t	id;
-	uint16_t	frag_off;
-	uint8_t	ttl;
-	uint8_t	protocol;
-	uint16_t	check;
-	uint32_t	saddr;
-	uint32_t	daddr;
-	/*The options start here. */
-};
 
 BPF_CALL_1(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx)
 {
 	struct sk_buff *skb;
+
 	if(unlikely(ctx == NULL)) {
 		printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> ctx is null\n");
 		return 0;
 	}
+
 	skb = (struct sk_buff *)(uintptr_t)ctx->packet;
 	if(unlikely(skb == NULL)) {
 		printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> skb is null\n");
 		return 0;
 	}
-	bpfhv_pkt->raw_buff = skb->data;  //l2_header and eth_header
-	bpfhv_pkt->len = skb->len;
-	/*switch(be16_to_cpu(bpfhv_pkt->eth_header->h_proto)) {
-        case ETH_P_IP:
-			if(unlikely(bpfhv_pkt->len < sizeof(struct ethhdr) + sizeof(struct iphdr))) {
-				printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->len (ETH_P_IP)\n");
-				return 0;
-			}
-			//bpfhv_pkt->ip_header = (struct iphdr*)(bpfhv_pkt->raw_buff + sizeof(struct ethhdr));
-			bpfhv_pkt->l3_header = skb_network_header(skb);
-			bpfhv_pkt->l4_header = skb_transport_header(skb);
-			if(unlikely(bpfhv_pkt->ip_header->version != 4)) {
-				printk(KERN_ERR "versione protocollo: %d\n", bpfhv_pkt->ip_header->version);
-				return 0;
-			}
-			switch (bpfhv_pkt->ip_header->protocol) {
-				case IPPROTO_UDP:
-		            bpfhv_pkt->payload = (uint8_t*)bpfhv_pkt->l4_header + sizeof(struct udphdr);
-					break;
-		        case IPPROTO_TCP:
-		            bpfhv_pkt->payload = (uint8_t*)bpfhv_pkt->l4_header + (bpfhv_pkt->tcp_header->doff << 2);
-					break;
-		        case IPPROTO_ICMP:
-		            return 0;
-		        default:
-					printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->ip_header->protocol\n");
-		            return 0;
-			}
-			bpfhv_pkt->payload_len = bpfhv_pkt->len - ((uintptr_t)bpfhv_pkt->payload - (uintptr_t)bpfhv_pkt->raw_buff);
-            break;
-        case ETH_P_IPV6:
-            return 0;
-		case ETH_P_ARP:
-            if(unlikely(
-				bpfhv_pkt->len < sizeof(struct ethhdr) +
-				sizeof(struct arphdr) + sizeof(struct arpethbody)
-			)) {
-				printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->len (ETH_P_ARP)\n");
-				return 0;
-			}
-			bpfhv_pkt->arp_header = (struct arphdr*)(bpfhv_pkt->raw_buff + sizeof(struct ethhdr));
-			bpfhv_pkt->arp_body = (struct arpethbody*)(
-				(uintptr_t)bpfhv_pkt->arp_header + sizeof(struct arphdr)
-			);
-			bpfhv_pkt->payload = 0;
-			bpfhv_pkt->payload_len = 0;
-			break;
-        default:
-			printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> invalid bpfhv_pkt->eth_header->h_proto\n");
-            return 0;
-    }*/
 
-	return (uintptr_t)bpfhv_pkt;
+	return (uintptr_t)skb_to_bpfvh_pkt(bpfhv_pkt, skb);
 }
 
 BPF_CALL_0(bpf_hv_get_shared_memory)

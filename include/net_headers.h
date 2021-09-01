@@ -6,6 +6,11 @@
  *		2 of the License, or (at your option) any later version.
  */
 
+
+#ifndef __NET_HEADERS_H__
+#define __NET_HEADERS_H__
+
+
 /** Endianness utils **/
 typedef uint8_t __u8;
 typedef uint16_t __u16;
@@ -403,3 +408,6 @@ struct arpethbody {
 	uint8_t ar_tha[ETH_ALEN]; /* target hardware address */
 	__be32  ar_tip;           /* target IP address */
 };
+
+
+#endif
