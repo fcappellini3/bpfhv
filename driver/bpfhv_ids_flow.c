@@ -235,7 +235,8 @@ get_flow(const struct flow_id* flow_id) {
 }
 
 /**
- * Like get_flow(...), but it does not lock/unlock the flow mutex
+ * Like get_flow(...), but it does not lock/unlock the flow mutex.
+ * It assumes that the mutex was already locked.
  */
  static struct flow*
  get_flow_no_mutex(const struct flow_id* flow_id) {
@@ -244,7 +245,6 @@ get_flow(const struct flow_id* flow_id) {
 
      hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
          if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
-             mutex_unlock(&flow_hash_table_mutex);
              return cur->flow;
          }
      }
