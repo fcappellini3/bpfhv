@@ -35,6 +35,16 @@ struct global global_ = {
 
 
 /**
+ * Debug only: print an error code
+ */
+static __inline void
+print_debug(const uint32_t code) {
+    char str[32];
+    str[0]='D'; str[1]='e'; str[2]='b'; str[3]='u'; str[4]='g'; str[5]=' '; str[6]='c'; str[7]='o'; str[8]='d'; str[9]='e'; str[10]=0;
+    print_num(str, code);
+}
+
+/**
  * Check a flow w.r.t. a struct ids_capture_protocol.
  * return: true if flow match the condition of cap_prot, false otherwise.
  */
@@ -68,8 +78,6 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
  static __inline uint32_t
  __ids_deep_scan(struct bpfhv_rx_context* ctx, struct bpfhv_pkt* pkt) {
      uint32_t alarm_index;
-     byte* pkt_payload;
-     uint32_t pkt_payload_size;
      struct ids_capture_protocol* cap_prot;
      struct flow_id flow_id;
      struct tcphdr* tcp_header;
@@ -81,7 +89,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      struct global* global = get_shared_memory();
 
      // Find packet payload and flow_id
-     struct iphdr* ip_header = get_ip_header(pkt);
+     struct iphdr* ip_header = pkt->ip_header;
      if(ip_header->version != 4) {
          return IDS_PASS;
      }
@@ -90,22 +98,22 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      flow_id.protocol = ip_header->protocol;
      switch(ip_header->protocol) {
          case IPPROTO_UDP:
-             udp_header = get_udp_header(pkt);
+             udp_header = pkt->udp_header;
              flow_id.src_port = udp_header->source;
              flow_id.dest_port = udp_header->dest;
-             pkt_payload = get_udp_payload(pkt, &pkt_payload_size);
              break;
          case IPPROTO_TCP:
-             tcp_header = get_tcp_header(pkt);
+             tcp_header = pkt->tcp_header;
              flow_id.src_port = tcp_header->source;
              flow_id.dest_port = tcp_header->dest;
-             pkt_payload = get_tcp_payload(pkt, &pkt_payload_size);
              break;
          default:
              return IDS_PASS;
      }
-     if(!pkt_payload)
-        return IDS_INVALID_PKT;
+     if(!pkt->payload) {
+        print_debug(4);
+        return IDS_INVALID_PKT(4);
+    }
 
      // Check if a flow already exists. If it exists we don't have to check for a matching payload,
      // but if there is no flow, we have to search for a matching payload (and maybe start a new
@@ -116,11 +124,11 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
          print_num(str, 0);
          goto a_flow_exists;
      } else {
-         // Scan: search for an "alarm payload" inside pkt_payload
+         // Scan: search for an "alarm payload" inside pkt->payload
          for(alarm_index = 0; alarm_index < global->alarm_count; ++alarm_index) {
              struct ids_alarm* alarm = &global->alarms[alarm_index];
              uint32_t find_res = find(
-                 pkt_payload, pkt_payload_size,
+                 pkt->payload, pkt->payload_len,
                  alarm->payload, alarm->payload_size
              );
              if(find_res != 0xFFFFFFFFU) {
@@ -144,7 +152,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
                  if(!flow) {
                      return IDS_LEVEL(10);
                  }
-                 flow->reserved = cap_prot;
+                 flow->reserved_bpf = cap_prot;
                  goto a_flow_exists;
              }
          }
@@ -165,15 +173,13 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
  }
 
 /**
- * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only
+ * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only.
+ * This function assumes that pkt is a valid ETH IP packet.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
  */
 static __inline uint32_t
 __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
-    if(invalid_ip_pkt(pkt))
-        return IDS_INVALID_PKT;
-
-    struct iphdr* ip_header = get_ip_header(pkt);
+    struct iphdr* ip_header = pkt->ip_header;
     if(ip_header->version != 4) {
         return IDS_PASS;
     }
@@ -183,34 +189,41 @@ __ids_analyze_ip_pkt(struct bpfhv_pkt* pkt) {
             return __auto_rules_tcp(pkt);
         case IPPROTO_TCP:
             return __auto_rules_udp(pkt);
-        /*case IPPROTO_ICMP:
-            return IDS_PASS;*/
+        case IPPROTO_ICMP:
+            return IDS_PASS;
         default:
+            print_debug(5);
             return IDS_PASS;
     }
 }
 
 /**
  * Apply IDS ARP rules. This function must be called by ids_analyze_eth_pkt only.
+ * This function assumes that pkt is a valid APR (ETH) packet.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
  */
 static __inline uint32_t
 __ids_analyze_arp_pkt(struct bpfhv_pkt* pkt) {
 #if 0
-    if(invalid_arp_pkt(pkt_sz))
-        return IDS_INVALID_PKT;
-    struct arphdr* arp_header = get_arp_header(pkt);
-    if(arp_header->ar_hln != 6 && arp_header->ar_pln != 4)
-        return IDS_INVALID_PKT;
+    struct arphdr* arp_header = pkt->arp_header;
+    if(arp_header->ar_hln != 6 && arp_header->ar_pln != 4) {
+        print_debug(2);
+        return IDS_INVALID_PKT(2);
+    }
 #endif
 #if 0
     // Example of APR poisoning detection
-    struct arpethbody* arp_body = get_arp_body(pkt);
+    struct arpethbody* arp_body = pkt->arp_body;
+    if(!arp_body) {
+        print_debug(2);
+        return IDS_INVALID_PKT(3);
+    }
     if(
         arp_body->ar_sip == GATEWAY_IP &&
         !mac_equal(arp_body->ar_sha, GATEWAY_MAC)
-    )
+    ) {
         return IDS_LEVEL(10);
+    }
 #endif
     return IDS_PASS;
 }
@@ -226,24 +239,19 @@ __ids_l2_rules(struct bpfhv_pkt* pkt) {
 
 /**
  * Analyze an L2 (ETH) packet provided as a struct bpfhv_pkt.
+ * This function assumes that pkt is a valid eth packet and does not perform checks.
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL.
  * return: IDS analyzis resulting level
  */
 static __inline uint32_t
 ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx, struct bpfhv_pkt* pkt) {
-    // Check if the packet is valid before everything else
-    if(invalid_eth_pkt(pkt)) {
-        return IDS_INVALID_PKT;
-    }
-
     // L2 rules
     uint32_t l2_check = __ids_l2_rules(pkt);
     if(l2_check != IDS_PASS)
         return l2_check;
 
     // The next step depends on the L3 protocol written in the L2 header
-    struct ethhdr* eth_header = get_eth_header(pkt);
-    uint16_t proto = be16_to_cpu(eth_header->h_proto);
+    uint16_t proto = be16_to_cpu(pkt->eth_header->h_proto);
     uint32_t result;
     switch(proto) {
         case ETH_P_ARP:
@@ -255,7 +263,8 @@ ids_analyze_eth_pkt(struct bpfhv_rx_context* ctx, struct bpfhv_pkt* pkt) {
         case ETH_P_IPV6:
             return IDS_PASS;
         default:
-            result = IDS_INVALID_PKT;
+            print_debug(1);
+            result = IDS_INVALID_PKT(1);
             break;
     }
 
@@ -307,7 +316,7 @@ ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
 __section("extra0")
 uint32_t
 check_flow(struct flow* flow) {
-    struct ids_capture_protocol* cap_prot = (struct ids_capture_protocol*)flow->reserved;
+    struct ids_capture_protocol* cap_prot = (struct ids_capture_protocol*)flow->reserved_bpf;
     if(__check_flow(flow, cap_prot)) {
         return IDS_LEVEL(cap_prot->ids_level);
     } else {

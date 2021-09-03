@@ -57,12 +57,15 @@ struct flow_id {
  * Main flow data structure. A struct flow represent a window on the communication between 2 hosts
  * in a single direction. When a flow is exceding max_size, the first part is removed (window
  * on the communication).
+ *
+ * @reserved_bpf: Correlated data reserved to the BPF progam
  */
 struct flow {
     struct flow_elem* head;
     struct flow_elem* tail;
     struct bpfhv_info* owner_bpfhv_info;
-    void* reserved;
+    void* reserved_bpf;
+    struct flow_kernel_reserved* reserved_kernel;
     struct flow_id flow_id;
     uint32_t size;
     uint32_t max_size;

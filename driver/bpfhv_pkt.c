@@ -1,10 +1,10 @@
-#include "types.h"
-#include "bpfhv_pkt.h"
 #include <linux/module.h>
 #include <linux/skbuff.h>
 #include <linux/ip.h>
 #include <linux/udp.h>
 #include <linux/tcp.h>
+#include "types.h"
+#include "bpfhv_pkt.h"
 
 
 #define ETH_ALEN 6
@@ -124,7 +124,6 @@ skb_to_bpfvh_pkt(struct bpfhv_pkt* bpfhv_pkt, const struct sk_buff* skb) {
 				bpfhv_pkt->len < sizeof(struct ethhdr) +
 				sizeof(struct arphdr) + sizeof(struct arpethbody)
 			)) {
-				printk(KERN_ERR "skb_to_bpfvh_pkt(...) -> invalid bpfhv_pkt->len (ETH_P_ARP)\n");
 				return 0;
 			}
 			bpfhv_pkt->arp_header = (struct arphdr*)(bpfhv_pkt->raw_buff + sizeof(struct ethhdr));

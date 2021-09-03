@@ -21,17 +21,19 @@ static uint32_t BPFHV_FUNC(store_pkt, struct flow* flow, void* buff, const uint3
 
 
 // Constants //
-#define IDS_INVALID_PKT 0xFFFFFFFFU
 #define IDS_PASS        0x00U
 #define MAX_IDS_ALARM_PAYLOAD_SIZE 128
 #define MAX_IDS_CAP_PROT_PAYLOAD_SIZE 128
+#define IDS_CRITICAL_THRESHOLD 5
 
 
 // Macros //
 #define IPADDR(a1,a2,a3,a4)    (uint32_t)((a1) << 24 | (a2) << 16 | (a3) << 8 | (a4))
 #define IPADDR_BE(a1,a2,a3,a4)   (__be32)((a4) << 24 | (a3) << 16 | (a2) << 8 | (a1))
 #define IDS_LEVEL(A) (A)
-#define IS_CRITICAL(A) ((A) > 5 && (A) != IDS_INVALID_PKT)
+#define IDS_INVALID_PKT(REASON) (0xFFFFFF00U | ((REASON) & 0xFFU))
+#define IS_INVALID(A) (((A) & 0xFFFFFF00U) == IDS_INVALID_PKT(0))
+#define IS_CRITICAL(A) ((A) > IDS_CRITICAL_THRESHOLD && !IS_INVALID(A))
 
 
 // Data structures //

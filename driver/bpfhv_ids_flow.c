@@ -4,6 +4,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/uio.h>  // iov_iter
+#include <linux/mutex.h>
 
 
 #define HASH_TABLE_BIT_COUNT 4U
@@ -11,19 +12,46 @@
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
 
 
+/**
+ * Structure that contains data related to the flow that are reserved for the kernelspace
+ */
+struct flow_kernel_reserved {
+    struct mutex flow_mutex;
+};
+
+/**
+ * Hashtable node
+ */
 struct h_node {
     struct flow* flow;
     struct hlist_node node;
 };
 
 
+/*
+ * Global data
+ */
+struct mutex flow_hash_table_mutex;
 DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 
 
+/*
+ * Function prototypes
+ */
 uint32_t run_bpfhv_prog(struct bpfhv_info* bi, const uint32_t index, void* arg);
 static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const uint32_t value);
 
+
+/**
+ * Lock a flow's mutex
+ */
+#define flow_mutex_lock(flow) do{} while(0) //mutex_lock(&flow->reserved_kernel->flow_mutex)
+
+/**
+ * Unlock a flow's mutex
+ */
+#define flow_mutex_unlock(flow) do{} while(0) //mutex_unlock(&flow->reserved_kernel->flow_mutex)
 
 /**
  * HELP/DEBUG functions
@@ -40,7 +68,6 @@ __print_flow_id(const struct flow_id* flow_id) {
         s_port, d_port, flow_id->protocol, flow_key
     );
 }
-
 
 /**
  * Compute the hash (hashtable key) from a struct flow_id
@@ -63,9 +90,11 @@ __alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const 
     struct flow* flow = kmalloc(sizeof(struct flow), GFP_KERNEL);
     memset(flow, 0, sizeof(*flow));
     flow->owner_bpfhv_info = owner_bpfhv_info;
+    flow->reserved_kernel = kmalloc(sizeof(struct flow_kernel_reserved), GFP_KERNEL);
     flow->flow_id = *flow_id;
     flow->max_size = max_size;
     flow->recording_enabled = recording_enabled;
+    mutex_init(&flow->reserved_kernel->flow_mutex);
     return flow;
 }
 
@@ -128,6 +157,11 @@ __free_flow(struct flow* flow) {
         __free_flow_elem(flow_elem);
         flow_elem = next_flow_elem;
     }
+
+    // Free kernel reserved data
+    kfree(flow->reserved_kernel);
+
+    // Free the flow itself
     kfree(flow);
 }
 
@@ -162,6 +196,7 @@ __pop_head_flow(struct flow* flow) {
  */
 void
 ids_flow_ini(void) {
+    mutex_init(&flow_hash_table_mutex);
     hash_init(flow_hash_table);
 }
 
@@ -186,16 +221,36 @@ struct flow*
 get_flow(const struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
-    //__print_flow_id(flow_id);
 
+    mutex_lock(&flow_hash_table_mutex);
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
+            mutex_unlock(&flow_hash_table_mutex);
             return cur->flow;
         }
     }
+    mutex_unlock(&flow_hash_table_mutex);
 
     return NULL;
 }
+
+/**
+ * Like get_flow(...), but it does not lock/unlock the flow mutex
+ */
+ static struct flow*
+ get_flow_no_mutex(const struct flow_id* flow_id) {
+     struct h_node* cur;
+     flow_key_t flow_key = __flow_hash(flow_id);
+
+     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
+         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
+             mutex_unlock(&flow_hash_table_mutex);
+             return cur->flow;
+         }
+     }
+
+     return NULL;
+ }
 
 /**
  * Docstring in ids_flow.h
@@ -222,7 +277,9 @@ create_flow(const struct flow_id* flow_id, const bool recording_enabled, const u
     h_node->flow = flow;
 
     // Add the flow to the hash table
+    mutex_lock(&flow_hash_table_mutex);
     hash_add(flow_hash_table, &h_node->node, __flow_hash(flow_id));
+    mutex_unlock(&flow_hash_table_mutex);
 
     {
         uint16_t s_port = be16_to_cpu(flow_id->src_port);
@@ -246,6 +303,7 @@ delete_flow(struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
 
+    mutex_lock(&flow_hash_table_mutex);
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
             printk(KERN_ERR "delete_flow(...) -> deleating ->");
@@ -256,10 +314,12 @@ delete_flow(struct flow_id* flow_id) {
             hash_del(&cur->node);
             // Free the h_node
             kfree(cur);
-            // Retrun true to signal the correct execution
+            // Release the mutex and retrun true to signal the correct execution
+            mutex_unlock(&flow_hash_table_mutex);
             return true;
         }
     }
+    mutex_unlock(&flow_hash_table_mutex);
 
     printk(KERN_ERR "delete_flow(...) -> called, but the flow does not exist\n");
     return false;
@@ -290,6 +350,7 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len) {
         return STORE_PKT_ERROR;
 
     // If the flow is empty store the packet as head/tail
+    flow_mutex_lock(flow);
     if(flow->elem_count == 0) {
         flow->elem_count = 1;
         flow->size = len;
@@ -307,6 +368,9 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len) {
     flow->tail = new_flow_elem;
     ++flow->elem_count;
     flow->size += len;
+
+    // Release mutex
+    flow_mutex_unlock(flow);
 
     return STORE_PKT_SUCCESS;
 }
@@ -343,9 +407,12 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> sock_to_flow_id(...) failed\n");
         return err;
     }
-    flow = get_flow(&flow_id);
-    if(!flow || !flow->recording_enabled)
+    mutex_lock(&flow_hash_table_mutex);
+    flow = get_flow_no_mutex(&flow_id);
+    if(!flow || !flow->recording_enabled) {
+        mutex_unlock(&flow_hash_table_mutex);
         return err;
+    }
 
     // Extract data from msghdr and store them
     {
@@ -358,6 +425,7 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
             store_result = store_pkt(flow, msg->msg_iter.iov[i].iov_base, size);
             if(unlikely(store_result != STORE_PKT_SUCCESS)) {
                 // handle error
+                mutex_unlock(&flow_hash_table_mutex);
                 printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> store_result != STORE_PKT_SUCCESS\n");
                 return err;
             }
@@ -368,7 +436,10 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     // Let the BPF program check the flow
     {
         uint32_t flow_check_result;
+        flow_mutex_lock(flow);
         flow_check_result = run_bpfhv_prog(flow->owner_bpfhv_info, BPFHV_PROG_EXTRA_0, flow);
+        flow_mutex_unlock(flow);
+        mutex_unlock(&flow_hash_table_mutex);
         printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
         if(flow_check_result) {
             send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);
