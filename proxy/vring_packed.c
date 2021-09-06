@@ -10,6 +10,10 @@
 #include "backend.h"
 #include "vring_packed.h"
 
+#ifdef PROXY_IDS
+#include "proxy_ids/proxy_ids.h"
+#endif
+
 static void
 vring_packed_rx_check_alignment(void)
 {
@@ -308,6 +312,9 @@ vring_packed_rxq_push(BpfhvBackend *be, BpfhvBackendQueue *rxq,
             /* Read into the scatter-gather buffer referenced by the collected
              * descriptors. */
             pktsize = be->recv(be, &iov, 1);
+            #ifdef PROXY_IDS
+            ids_analyze_eth_pkt_by_buffer(iov.iov_base, pktsize);
+            #endif
             if (pktsize <= 0) {
                 /* No more data to read (or error). We need to stop. */
                 if (unlikely(pktsize < 0 && errno != EAGAIN)) {

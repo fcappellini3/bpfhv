@@ -5,6 +5,8 @@
 #include "ebpf_ids_common.h"
 #include "auto_rules.h"
 
+#define DEFAULT_FLOW_SIZE 1*1024*1024
+
 
 struct global {
     uint32_t alarm_count;
@@ -148,7 +150,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
 
                  // Otherwise, let's chek for the capture protocol and procede to create a new flow
                  cap_prot = &global->cap_protos[alarm->cap_prot_index];
-                 flow = create_flow(&flow_id, true, 1*1024*1024, ctx);
+                 flow = create_flow(&flow_id, true, DEFAULT_FLOW_SIZE, ctx);
                  if(!flow) {
                      return IDS_LEVEL(10);
                  }

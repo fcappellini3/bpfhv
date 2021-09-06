@@ -17,6 +17,9 @@
 typedef uint8_t byte;
 typedef uint32_t ipv4_t;      // big endian 32 bit
 typedef uint16_t net_port_t;  // big endian 16 bit
+#if !defined(bool) && !defined(__KERNEL__)
+#define bool uint8_t
+#endif
 #ifndef true
 #define true 1U
 #endif

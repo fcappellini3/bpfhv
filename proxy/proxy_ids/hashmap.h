@@ -1,8 +1,14 @@
+/**
+ * Module that offer a simple header-only hashmap
+ */
+
+
 #ifndef __HASHMAP_H__
 #define __HASHMAP_H__
 
 
 #include "types.h"
+#include <stdlib.h>
 
 
 // Check if h_key_t and h_value_t are defined
@@ -15,14 +21,18 @@
 
 
 struct hashmap {
-    uint32_t hashtable_size,
+    uint32_t hashtable_size;
     struct h_node** hashtable;
-    uint32_t (*hash)(const h_key_t* h_key)
+    uint32_t (*hash)(const h_key_t* h_key);
+    bool (*key_compare)(const h_key_t* key_a, const h_key_t* key_b);
 };
 
 
-#define DECLARE_HASHMAP(NAME, SIZE, HASH_FUNCTION) \
-    static struct hashmap NAME = {SIZE, 0, HASH_FUNCTION}
+#define HASHMAP(SIZE, HASH_FUNCTION, KEY_COMPARE_FUNCTION) \
+    {SIZE, 0, HASH_FUNCTION, KEY_COMPARE_FUNCTION}
+
+#define DECLARE_HASHMAP(NAME, SIZE, HASH_FUNCTION, KEY_COMPARE_FUNCTION) \
+    static struct hashmap NAME = HASHMAP(SIZE, HASH_FUNCTION, KEY_COMPARE_FUNCTION)
 
 
 struct h_node {
@@ -48,7 +58,9 @@ hashmap_ini(struct hashmap* hashmap) {
  */
 static void
 hashmap_fini(struct hashmap* hashmap) {
-    free(hashmap->hashtable);
+    if(hashmap->hashtable) {
+        free(hashmap->hashtable);
+    }
     hashmap->hashtable = 0;
 }
 
@@ -57,7 +69,7 @@ hashmap_fini(struct hashmap* hashmap) {
  */
 static void
 h_store(struct hashmap* hashmap, const h_key_t key, h_value_t value) {
-    uint32_t index = hashmap->hash(key);
+    uint32_t index = hashmap->hash(&key);
     struct h_node* h_node = malloc(sizeof(struct h_node));
     h_node->key = key;
     h_node->value = value;
@@ -72,9 +84,9 @@ h_store(struct hashmap* hashmap, const h_key_t key, h_value_t value) {
 static h_value_t
 h_get(struct hashmap* hashmap, const h_key_t key) {
     struct h_node* ptr;
-    uint32_t index = hashmap->hash(key);
+    uint32_t index = hashmap->hash(&key);
     for(ptr = hashmap->hashtable[index]; ptr; ptr = ptr->next) {
-        if(ptr->key == key)
+        if(hashmap->key_compare(&ptr->key, &key))
             return ptr->value;
     }
     return 0;
@@ -83,22 +95,24 @@ h_get(struct hashmap* hashmap, const h_key_t key) {
 /**
  * Delete (key, <value associated with key>) from the hashmap
  */
-static void
+static bool
 h_delete(struct hashmap* hashmap, const h_key_t key) {
     struct h_node* ptr;
     struct h_node* prev = 0;
-    uint32_t index = hashmap->hash(key);
+    uint32_t index = hashmap->hash(&key);
     for(ptr = hashmap->hashtable[index]; ptr; prev = ptr, ptr = ptr->next) {
-        if(ptr->key == key) {
+        if(hashmap->key_compare(&ptr->key, &key)) {
             if(!prev) {
                 hashmap->hashtable[index] = ptr->next;
             } else {
                 prev->next = ptr->next;
             }
             free(ptr);
-            return;
+            return true;
         }
     }
+
+    return false;
 }
 
 

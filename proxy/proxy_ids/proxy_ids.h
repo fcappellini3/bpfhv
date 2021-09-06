@@ -30,7 +30,12 @@
  * Start the ETH packet process. The packet must be described by the pointer to its buffer and
  * by an unsigned representing its length
  */
-uint32_t ids_analyze_eth_pkt(void* buff, uint32_t len);
+uint32_t ids_analyze_eth_pkt_by_buffer(void* buff, uint32_t len);
+
+/**
+ * Deallocate and free memory
+ */
+void proxy_ids_fini(void);
 
 
 #endif
