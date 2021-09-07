@@ -10,6 +10,7 @@
 #include "proxy_ids.h"
 #include "bpfhv_pkt.h"
 #include "net_headers.h"
+#include "log.h"
 
 
 #ifndef likely
@@ -202,7 +203,7 @@ craft_bpfhv_pkt(void* buff, uint32_t len) {
     global_bpfhv_pkt.len = len;
 
     if(unlikely(global_bpfhv_pkt.len < sizeof(struct ethhdr))) {
-        fprintf(stderr, "craft_bpfhv_pkt(...) -> invalid global_bpfhv_pkt.len\n");
+        print_error("craft_bpfhv_pkt(...) -> invalid global_bpfhv_pkt.len\n");
         return 0;
     }
 
@@ -237,7 +238,7 @@ craft_bpfhv_pkt(void* buff, uint32_t len) {
 		        case IPPROTO_ICMP:
 		            return 0;
 		        default:
-					fprintf(stderr, "craft_bpfhv_pkt(...) -> invalid global_bpfhv_pkt.ip_header->protocol\n");
+					print_error("craft_bpfhv_pkt(...) -> invalid global_bpfhv_pkt.ip_header->protocol\n");
 		            return 0;
 			}
 			global_bpfhv_pkt.payload_len = global_bpfhv_pkt.len - ((uintptr_t)global_bpfhv_pkt.payload - (uintptr_t)global_bpfhv_pkt.raw_buff);
@@ -325,7 +326,7 @@ create_flow(const struct flow_id* flow_id, const bool recording_enabled, const u
         return 0;
     }
     h_store(&flow_hashmap, *flow_id, flow);
-    fprintf(stderr, "Created flow -> %s\n", flow_id_to_string(flow_id));
+    print_debug("Created flow -> %s\n", flow_id_to_string(flow_id));
     return flow;
 }
 
@@ -336,7 +337,7 @@ static inline void
 __free_flow_elem(struct flow_elem* flow_elem) {
     // Check if flow_elem is NULL
     if(unlikely(!flow_elem)) {
-        fprintf(stderr, "__free_flow_elem(...) -> called, but flow_elem is NULL\n");
+        print_error("__free_flow_elem(...) -> called, but flow_elem is NULL\n");
         return;
     }
 
@@ -355,7 +356,7 @@ __free_flow(struct flow* flow) {
 
     // Check if flow_elem is NULL
     if(unlikely(!flow)) {
-        fprintf(stderr, "__free_flow(...) -> called, but flow is NULL\n");
+        print_error("__free_flow(...) -> called, but flow is NULL\n");
         return;
     }
 
@@ -383,7 +384,7 @@ delete_flow(struct flow_id* flow_id) {
     }
     ret = h_delete(&flow_hashmap, *flow_id);
     __free_flow(flow);
-    fprintf(stderr, "Deleted flow -> %s\n", flow_id_to_string(flow_id));
+    print_debug("Deleted flow -> %s\n", flow_id_to_string(flow_id));
     return ret;
 }
 
@@ -394,14 +395,14 @@ static inline struct flow_elem*
 __alloc_flow_elem(void* buff, const uint32_t len) {
     struct flow_elem* flow_elem = malloc(sizeof(struct flow_elem));
     if(unlikely(!flow_elem)) {
-        fprintf(stderr, "__alloc_flow_elem(...) -> out of memory!");
+        print_error("__alloc_flow_elem(...) -> out of memory!");
         return NULL;
     }
     flow_elem->next = NULL;
     flow_elem->len = len;
     flow_elem->buff = malloc(len);
     if(unlikely(!flow_elem->buff)) {
-        fprintf(stderr, "__alloc_flow_elem(...) -> out of memory!");
+        print_error("__alloc_flow_elem(...) -> out of memory!");
         free(flow_elem);
         return NULL;
     }
@@ -448,13 +449,13 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len) {
 
     // If the flow is NULL raise an error
     if(unlikely(!flow)) {
-        fprintf(stderr, "store_pkt(...) -> flow is NULL\n");
+        print_error("store_pkt(...) -> flow is NULL\n");
         return STORE_PKT_ERROR;
     }
 
     // Check if len is too much for this flow
     if(unlikely(len > flow->max_size)) {
-        fprintf(stderr, "store_pkt(...) -> len is too big\n");
+        print_error("store_pkt(...) -> len is too big\n");
         return STORE_PKT_ERROR;
     }
 
@@ -849,7 +850,7 @@ ids_analyze_eth_pkt_by_buffer(void* buff, uint32_t len) {
 
     // Print some info
     if(level != IDS_PASS) {
-        fprintf(stderr, "level: %d\n", level);
+        print_error("level: %d\n", level);
     }
 
     return level;

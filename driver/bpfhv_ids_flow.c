@@ -5,6 +5,7 @@
 #include <linux/slab.h>
 #include <linux/uio.h>  // iov_iter
 #include <linux/mutex.h>
+#include "log.h"
 
 
 #define HASH_TABLE_BIT_COUNT 4U
@@ -56,18 +57,20 @@ void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const 
 /**
  * HELP/DEBUG functions
  */
+#if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
 static void
 __print_flow_id(const struct flow_id* flow_id) {
     flow_key_t flow_key = __flow_hash(flow_id);
     uint16_t s_port = be16_to_cpu(flow_id->src_port);
     uint16_t d_port = be16_to_cpu(flow_id->dest_port);
-    printk(
-        KERN_ERR "flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d, flow_key: %d\n",
+    print_debug(
+        "flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d, flow_key: %d\n",
         flow_id->src_ip & 0xFF, (flow_id->src_ip >> 8) & 0xFF, (flow_id->src_ip >> 16) & 0xFF, (flow_id->src_ip >> 24),
         flow_id->dest_ip & 0xFF, (flow_id->dest_ip >> 8) & 0xFF, (flow_id->dest_ip >> 16) & 0xFF, (flow_id->dest_ip >> 24),
         s_port, d_port, flow_id->protocol, flow_key
     );
 }
+#endif
 
 /**
  * Compute the hash (hashtable key) from a struct flow_id
@@ -211,7 +214,6 @@ ids_flow_fini(void) {
     hash_for_each(flow_hash_table, bkt, cur, node) {
         __free_flow(cur->flow);
     }
-    printk(KERN_ERR "ids_flow_fini(void) -> Bye bye\n");
 }
 
 /**
@@ -281,15 +283,18 @@ create_flow(const struct flow_id* flow_id, const bool recording_enabled, const u
     hash_add(flow_hash_table, &h_node->node, __flow_hash(flow_id));
     mutex_unlock(&flow_hash_table_mutex);
 
+    #if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
     {
         uint16_t s_port = be16_to_cpu(flow_id->src_port);
         uint16_t d_port = be16_to_cpu(flow_id->dest_port);
-        printk(KERN_ERR "Flow created -> flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d\n",
+        print_debug(
+            "Flow created -> flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d\n",
             flow_id->src_ip & 0xFF, (flow_id->src_ip >> 8) & 0xFF, (flow_id->src_ip >> 16) & 0xFF, (flow_id->src_ip >> 24),
             flow_id->dest_ip & 0xFF, (flow_id->dest_ip >> 8) & 0xFF, (flow_id->dest_ip >> 16) & 0xFF, (flow_id->dest_ip >> 24),
             s_port, d_port, flow_id->protocol
         );
     }
+    #endif
 
     // Return the flow
     return flow;
@@ -306,8 +311,10 @@ delete_flow(struct flow_id* flow_id) {
     mutex_lock(&flow_hash_table_mutex);
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
-            printk(KERN_ERR "delete_flow(...) -> deleating ->");
+            #if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
+            print_debug("delete_flow(...) -> deleating ->");
             __print_flow_id(flow_id);
+            #endif
             // Terminate the flow and free memory
             __free_flow(cur->flow);
             // Remove the node from the hash table
@@ -440,9 +447,11 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         flow_check_result = run_bpfhv_prog(flow->owner_bpfhv_info, BPFHV_PROG_EXTRA_0, flow);
         flow_mutex_unlock(flow);
         mutex_unlock(&flow_hash_table_mutex);
-        printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
         if(flow_check_result) {
+            printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
             send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);
+        } else {
+            print_debug("flow_check_result: %d\n", flow_check_result);
         }
     }
 

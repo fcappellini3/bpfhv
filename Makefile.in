@@ -50,7 +50,7 @@ proxy/vring_packed_progs.o: proxy/vring_packed_progs.c proxy/vring_packed.h incl
 	clang -O2 -Wall -I @SRCDIR@/include -target bpf -c $< -o $@
 
 backend_ids: $(BESRCS_IDS) $(BEHDRS_IDS)
-	$(CC) -O2 -g -Wall -Werror -Wno-address-of-packed-member -DPROXY_IDS -I @SRCDIR@/include $(DEFS) -o proxy/backend $(BESRCS_IDS) $(LIBS)
+	$(CC) -O2 -g -Wall -Werror -Wno-address-of-packed-member -DPROXY_IDS -DDEBUG_LEVEL=1 -I @SRCDIR@/include $(DEFS) -o proxy/backend $(BESRCS_IDS) $(LIBS)
 
 proxy_clean:
 	-rm -rf $(PROGS)

@@ -338,11 +338,6 @@ enum {
 #define BPFHV_PROG_RX_POSTPROC_OK       0
 #define BPFHV_PROG_RX_POSTPROC_PKT_DROP 1
 
-/**
- * Send a signal to the hypervisor (write value to the signal register)
- * value: signal value
- */
-//void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const uint32_t value);
 
 #ifdef __cplusplus
 }
