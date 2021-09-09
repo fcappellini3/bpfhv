@@ -63,9 +63,27 @@ __kp_null_fault_handler(struct kprobe *p, struct pt_regs *regs, int trapnr) {
  */
 static int
 __kp_inet_release_pre_handler(struct kprobe *p, struct pt_regs *regs) {
-    //struct socket* socket = (struct socket*)(uintptr_t)regs->di;
-    //struct sock *sk = socket->sk;
-    //printk(KERN_ERR "__kp_inet_release_pre_handler(...) called -> %lx\n", (uintptr_t)sk);
+    struct sock* sk;
+    struct socket* socket;
+    struct flow_id flow_id;
+
+    socket = (struct socket*)(uintptr_t)regs->di;
+    if(unlikely(!socket)) {
+        return 0;
+    }
+    sk = socket->sk;
+    if(unlikely(!sk)) {
+        return 0;
+    }
+
+    // Compute flow_id related to sk
+    if(unlikely(!server_sock_to_flow_id(sk, &flow_id))) {
+        return 0;
+    }
+
+    // Delete the flow identified by flow_id (if there is no such flow, the delete function do
+    // nothing)
+    delete_flow(&flow_id);
     return 0;
 }
 

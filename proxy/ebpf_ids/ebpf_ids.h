@@ -162,11 +162,7 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
 
      a_flow_exists:
      // If I'm here a flow exists (because it was just created or because it was already existing).
-     // If the protocol is TCP and we have a TCP FIN, the current flow must be terminated and
-     // deallocated to free memory.
-     if(flow->flow_id.protocol == IPPROTO_TCP && tcp_header->fin) {
-         delete_flow(&flow->flow_id);
-     }
+     // Flow checking and deleating are managed later
 
      return IDS_PASS;
  }

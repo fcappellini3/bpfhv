@@ -328,7 +328,6 @@ delete_flow(struct flow_id* flow_id) {
     }
     mutex_unlock(&flow_hash_table_mutex);
 
-    printk(KERN_ERR "delete_flow(...) -> called, but the flow does not exist\n");
     return false;
 }
 
