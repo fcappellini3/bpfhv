@@ -7,9 +7,11 @@ configure options:
     --help                      Show this help and exit
     --prefix                    [/] Prefix path for installation of kernel and user components
     --kdir                      Path to the kernel directory to use for out-of-tree module compilation
+    --debug_level               0 to print only essential info, 1 to print all
     --nodriver                  Don't build the guest kernel driver
     --noproxy                   Don't build proxy code
-    --netmap			Build the proxy backend with netmap support
+    --netmap                    Build the proxy backend with netmap support
+    --ids                       Build the BPFHV IDS (BPF injectable code)
 EOF
 }
 
@@ -20,6 +22,8 @@ BUILD_DRIVER="y"
 BUILD_PROXY="y"
 KER_INSTALL_DEPS="ker"
 NETMAP="n"
+DEBUG_LEVEL=0
+IDS=""
 
 # Option parsing
 while [[ $# > 0 ]]
@@ -56,6 +60,16 @@ do
         fi
         ;;
 
+        "--debug_level")
+        if [ -n "$2" ]; then
+            DEBUG_LEVEL=$2
+            shift
+        else
+            echo "--debug_level requires a LEVEL argument"
+            exit 255
+        fi
+        ;;
+
         "--nodriver")
         BUILD_DRIVER="n"
         ;;
@@ -66,6 +80,10 @@ do
 
         "--netmap")
         NETMAP="y"
+        ;;
+
+        "--ids")
+        IDS="-DIDS=1"
         ;;
 
         *)
@@ -85,3 +103,5 @@ sed -i "s|@PROXY@|${BUILD_PROXY}|g" $SRCDIR/Makefile
 sed -i "s|@DRIVER@|${BUILD_DRIVER}|g" $SRCDIR/Makefile
 sed -i "s|@INSTALL_MOD_PATH@|${INSTALL_PREFIX}|g" $SRCDIR/Makefile
 sed -i "s|@KERNBUILDDIR@|$KERNBUILDDIR|g" $SRCDIR/Makefile
+sed -i "s|@DEBUG_LEVEL@|$DEBUG_LEVEL|g" $SRCDIR/Makefile
+sed -i "s|@IDS@|$IDS|g" $SRCDIR/Makefile

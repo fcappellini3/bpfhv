@@ -18,6 +18,8 @@
     __this_cpu_write(p, NULL);
 
 
+#ifdef IDS
+
 static struct kprobe kp_inet_recvmsg = {
 	.symbol_name	= "inet_recvmsg",
 };
@@ -87,12 +89,16 @@ __kp_inet_release_pre_handler(struct kprobe *p, struct pt_regs *regs) {
     return 0;
 }
 
+#endif
+
 
 /**
  * Doc in bpfhv_kprobes.h
  */
 bool
 bpfhv_kprobes_ini(void) {
+    #ifdef IDS
+
     int ret;
 
     kp_inet_recvmsg.pre_handler = __kp_inet_recvmsg_pre_handler;
@@ -112,6 +118,8 @@ bpfhv_kprobes_ini(void) {
         return false;
     }
 
+    #endif
+
     return true;
 }
 
@@ -120,7 +128,10 @@ bpfhv_kprobes_ini(void) {
  */
 void
 bpfhv_kprobes_fini(void) {
+    #ifdef IDS
     unregister_kprobe(&kp_inet_recvmsg);
+    unregister_kprobe(&kp_inet_release);
+    #endif
 }
 
 MODULE_LICENSE("GPL");

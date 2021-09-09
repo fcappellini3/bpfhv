@@ -305,6 +305,8 @@ ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
     return level;
 }
 
+#ifdef IDS
+
 /**
  * Check a flow
  */
@@ -318,5 +320,19 @@ check_flow(struct flow* flow) {
         return IDS_PASS;
     }
 }
+
+/**
+ * Receive post process handler (rxh)
+ */
+__section("rxh")
+int rxh_handler(struct bpfhv_rx_context *ctx)
+{
+    uint32_t level = ids_analyze_eth_pkt_by_context(ctx);
+    if(IS_CRITICAL(level))
+        return BPFHV_PROG_RX_POSTPROC_PKT_DROP;
+    return BPFHV_PROG_RX_POSTPROC_OK;
+}
+
+#endif
 
 #endif

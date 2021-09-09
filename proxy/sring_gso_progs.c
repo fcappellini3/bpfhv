@@ -363,12 +363,3 @@ int sring_gso_rxi(struct bpfhv_rx_context *ctx)
 
     return 0;
 }
-
-__section("rxh")
-int sring_rxh(struct bpfhv_rx_context *ctx)
-{
-    uint32_t level = ids_analyze_eth_pkt_by_context(ctx);
-    if(IS_CRITICAL(level))
-        return BPFHV_PROG_RX_POSTPROC_PKT_DROP;
-    return BPFHV_PROG_RX_POSTPROC_OK;
-}

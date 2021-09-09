@@ -1,6 +1,7 @@
 #include "bpfhv.h"
 #include "progs_common.h"
 #include "vring_packed.h"
+#include "./ebpf_ids/ebpf_ids.h"
 
 
 static int BPFHV_FUNC(rx_pkt_alloc, struct bpfhv_rx_context *ctx);
