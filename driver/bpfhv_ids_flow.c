@@ -390,8 +390,9 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     struct flow_id flow_id;
     struct flow* flow;
     struct sock *sk = sock->sk;
-	int addr_len = 0;
-	int err;
+    unsigned long irq_flags;
+    int addr_len = 0;
+    int err;
 
 	if(likely(!(flags & MSG_ERRQUEUE)))
 	   sock_rps_record_flow(sk);
@@ -409,15 +410,19 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     if(err == 0)
         return err;
 
-    // Check if current packet must be stored and, if yes, search its flow
+    // Calculate the flow_id related to this socket
     if(!server_sock_to_flow_id(sk, &flow_id)) {
         printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> sock_to_flow_id(...) failed\n");
         return err;
     }
+
+    // Check if current packet must be stored and, if yes, search its flow
+    local_irq_save(irq_flags);
     mutex_lock(&flow_hash_table_mutex);
     flow = get_flow_no_mutex(&flow_id);
     if(!flow || !flow->recording_enabled) {
         mutex_unlock(&flow_hash_table_mutex);
+        local_irq_restore(irq_flags);
         return err;
     }
 
@@ -433,6 +438,7 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
             if(unlikely(store_result != STORE_PKT_SUCCESS)) {
                 // handle error
                 mutex_unlock(&flow_hash_table_mutex);
+                local_irq_restore(irq_flags);
                 printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> store_result != STORE_PKT_SUCCESS\n");
                 return err;
             }
@@ -447,6 +453,7 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         flow_check_result = run_bpfhv_prog(flow->owner_bpfhv_info, BPFHV_PROG_EXTRA_0, flow);
         flow_mutex_unlock(flow);
         mutex_unlock(&flow_hash_table_mutex);
+        local_irq_restore(irq_flags);
         if(flow_check_result) {
             printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
             send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);

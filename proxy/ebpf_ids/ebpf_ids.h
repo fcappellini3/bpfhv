@@ -85,7 +85,6 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      struct tcphdr* tcp_header;
      struct udphdr* udp_header;
      struct flow* flow;
-     char str[32];
 
      // Get global memory
      struct global* global = get_shared_memory();
@@ -122,8 +121,6 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
      // flow in case we found one).
      flow = get_flow(&flow_id);
      if(flow) {
-         str[0]='a'; str[1]=' '; str[2]='f'; str[3]='l'; str[4]='o'; str[5]='w'; str[6]=' '; str[7]='e'; str[8]='x'; str[9]='i'; str[10]='s'; str[11]='t'; str[12]='s'; str[13]=0;
-         print_num(str, 0);
          goto a_flow_exists;
      } else {
          // Scan: search for an "alarm payload" inside pkt->payload
