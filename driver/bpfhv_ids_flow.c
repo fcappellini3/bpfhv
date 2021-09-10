@@ -1,5 +1,6 @@
 #include "bpfhv_ids_flow.h"
 #include "bpfhv.h"
+#include "bpfhv_progs_registry.h"
 #include <linux/hashtable.h>  // hashtable API
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -39,9 +40,8 @@ DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 /*
  * Function prototypes
  */
-uint32_t run_bpfhv_prog(struct bpfhv_info* bi, const uint32_t index, void* arg);
+uint32_t run_bpfhv_prog_1(struct bpfhv_info* bi, const uint32_t index, void* arg);
 static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
-void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const uint32_t value);
 
 
 /**
@@ -58,17 +58,20 @@ void send_hypervisor_signal(struct bpfhv_info* bi, const uint32_t signal, const 
  * HELP/DEBUG functions
  */
 #if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
-static void
-__print_flow_id(const struct flow_id* flow_id) {
-    flow_key_t flow_key = __flow_hash(flow_id);
+char str_buffer[500];
+
+static inline char*
+flow_id_to_string(const struct flow_id* flow_id, char* buffer) {
     uint16_t s_port = be16_to_cpu(flow_id->src_port);
     uint16_t d_port = be16_to_cpu(flow_id->dest_port);
-    print_debug(
-        "flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d, flow_key: %d\n",
+    sprintf(
+        buffer,
+        "flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d",
         flow_id->src_ip & 0xFF, (flow_id->src_ip >> 8) & 0xFF, (flow_id->src_ip >> 16) & 0xFF, (flow_id->src_ip >> 24),
         flow_id->dest_ip & 0xFF, (flow_id->dest_ip >> 8) & 0xFF, (flow_id->dest_ip >> 16) & 0xFF, (flow_id->dest_ip >> 24),
-        s_port, d_port, flow_id->protocol, flow_key
+        s_port, d_port, flow_id->protocol
     );
+    return buffer;
 }
 #endif
 
@@ -258,12 +261,15 @@ get_flow(const struct flow_id* flow_id) {
  * Docstring in ids_flow.h
  */
 struct flow*
-create_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size,
-            struct bpfhv_info* owner_bpfhv_info) {
+create_flow(
+    const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size,
+    struct bpfhv_info* owner_bpfhv_info
+) {
     struct h_node* h_node;
+    struct flow* flow;
 
     // Check if the flow already exists. If yes, raise a warning and return that flow.
-    struct flow* flow = get_flow(flow_id);
+    flow = get_flow(flow_id);
     if(unlikely(flow)) {
         printk(KERN_ERR "create_flow(...) -> called, but the flow already exists\n");
         return flow;
@@ -283,18 +289,7 @@ create_flow(const struct flow_id* flow_id, const bool recording_enabled, const u
     hash_add(flow_hash_table, &h_node->node, __flow_hash(flow_id));
     mutex_unlock(&flow_hash_table_mutex);
 
-    #if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
-    {
-        uint16_t s_port = be16_to_cpu(flow_id->src_port);
-        uint16_t d_port = be16_to_cpu(flow_id->dest_port);
-        print_debug(
-            "Flow created -> flow_id -> src_ip: %d.%d.%d.%d, dest_ip: %d.%d.%d.%d, src_port: %d, dest_port: %d, protocol: %d\n",
-            flow_id->src_ip & 0xFF, (flow_id->src_ip >> 8) & 0xFF, (flow_id->src_ip >> 16) & 0xFF, (flow_id->src_ip >> 24),
-            flow_id->dest_ip & 0xFF, (flow_id->dest_ip >> 8) & 0xFF, (flow_id->dest_ip >> 16) & 0xFF, (flow_id->dest_ip >> 24),
-            s_port, d_port, flow_id->protocol
-        );
-    }
-    #endif
+    print_debug("create_flow(...) -> flow created\n");
 
     // Return the flow
     return flow;
@@ -311,10 +306,9 @@ delete_flow(struct flow_id* flow_id) {
     mutex_lock(&flow_hash_table_mutex);
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
-            #if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
-            print_debug("delete_flow(...) -> deleating ->");
-            __print_flow_id(flow_id);
-            #endif
+            print_debug(
+                "delete_flow(...) -> deleating -> %s\n", flow_id_to_string(flow_id, str_buffer)
+            );
             // Terminate the flow and free memory
             __free_flow(cur->flow);
             // Remove the node from the hash table
@@ -328,6 +322,7 @@ delete_flow(struct flow_id* flow_id) {
     }
     mutex_unlock(&flow_hash_table_mutex);
 
+    print_debug("delete_flow(...) -> failed to delete a flow\n");
     return false;
 }
 
@@ -382,6 +377,24 @@ store_pkt(struct flow* flow, void* buff, const uint32_t len) {
 }
 
 /**
+ * Docstring in bpfhv_ids_flow.h
+ */
+struct bpfhv_info*
+get_flow_owner(const struct flow_id* flow_id) {
+    struct flow* flow;
+    struct bpfhv_info* bpfhv_info = NULL;
+
+    mutex_lock(&flow_hash_table_mutex);
+    flow = get_flow_no_mutex(flow_id);
+    if(unlikely(flow)) {
+        bpfhv_info = flow->owner_bpfhv_info;
+    }
+    mutex_unlock(&flow_hash_table_mutex);
+
+    return bpfhv_info;
+}
+
+/**
  * Docstring in ids_flow.h
  */
 int
@@ -406,16 +419,23 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
 
 	msg->msg_namelen = addr_len;
 
-    if(err == 0)
-        return err;
-
-    // Calculate the flow_id related to this socket
-    if(!server_sock_to_flow_id(sk, &flow_id)) {
-        printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> sock_to_flow_id(...) failed\n");
+    if(err == 0) {
         return err;
     }
 
-    // Check if current packet must be stored and, if yes, search its flow
+    // If the message is empty, simply return
+    if(unlikely(!msg->msg_iter.nr_segs)) {
+        return err;
+    }
+
+    // Calculate the flow_id related to this socket
+    if(!server_sock_to_flow_id(sk, &flow_id)) {
+        printk(KERN_ERR "inet_recvmsg_replacement(...) -> sock_to_flow_id(...) failed\n");
+        return err;
+    }
+
+    // Find the flow that corresponds to this flow_id and check if the recording_enabled flag is
+    // enabled
     local_irq_save(irq_flags);
     mutex_lock(&flow_hash_table_mutex);
     flow = get_flow_no_mutex(&flow_id);
@@ -425,41 +445,33 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
         return err;
     }
 
-    // Extract data from msghdr and store them
+    // Extract data from msghdr, store them and call the appropriete BPF program
     {
+        struct srd_handler_arg srd_handler_arg = {
+            .flow = flow,
+            .buffer_descriptor_array = kmalloc(msg->msg_iter.nr_segs * sizeof(struct buffer_descriptor), GFP_KERNEL),
+            .buffer_descriptor_array_size = msg->msg_iter.nr_segs
+        };
         uint32_t i;
         uint32_t size;
         uint32_t remaining_size = (uint32_t)err;
-        uint32_t store_result;
         for(i = 0; i < msg->msg_iter.nr_segs && remaining_size; ++i) {
             size = MIN(msg->msg_iter.iov[i].iov_len, remaining_size);
-            store_result = store_pkt(flow, msg->msg_iter.iov[i].iov_base, size);
-            if(unlikely(store_result != STORE_PKT_SUCCESS)) {
-                // handle error
-                mutex_unlock(&flow_hash_table_mutex);
-                local_irq_restore(irq_flags);
-                printk(KERN_ERR "__kp_inet_recvmsg_replacement(...) -> store_result != STORE_PKT_SUCCESS\n");
-                return err;
-            }
+            srd_handler_arg.buffer_descriptor_array[i].buff = msg->msg_iter.iov[i].iov_base;
+            srd_handler_arg.buffer_descriptor_array[i].len = size;
             remaining_size -= size;
         }
+        run_bpfhv_prog_1(flow->owner_bpfhv_info, BPFHV_PROG_SOCKET_READ, &srd_handler_arg);
+        kfree(srd_handler_arg.buffer_descriptor_array);
     }
 
-    // Let the BPF program check the flow
-    {
-        uint32_t flow_check_result;
-        flow_mutex_lock(flow);
-        flow_check_result = run_bpfhv_prog(flow->owner_bpfhv_info, BPFHV_PROG_EXTRA_0, flow);
-        flow_mutex_unlock(flow);
-        mutex_unlock(&flow_hash_table_mutex);
-        local_irq_restore(irq_flags);
-        if(flow_check_result) {
-            printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
-            send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);
-        } else {
-            print_debug("flow_check_result: %d\n", flow_check_result);
-        }
-    }
+    // Unlock mutex and restore local IRQ status
+    mutex_unlock(&flow_hash_table_mutex);
+    local_irq_restore(irq_flags);
+
+
+    /*printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
+    send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);*/
 
 	return err;
 }

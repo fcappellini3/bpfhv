@@ -16,10 +16,10 @@ clean: ker_clean proxy_clean
 
 ifeq ("DRIVER@DRIVER@", "DRIVERy")
 ker:
-	$(MAKE) -C $(KSRC) M=@SRCDIR@/driver EXTRA_CFLAGS="$(EXTRA_CFLAGS) -g -Werror -I@SRCDIR@/include" modules
+	$(MAKE) -C $(KSRC) M=@SRCDIR@/driver EXTRA_CFLAGS="$(EXTRA_CFLAGS) -g -Werror -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(IDS) -I@SRCDIR@/include" modules
 
 ker_install:
-	$(MAKE) -C $(KSRC) M=@SRCDIR@/driver EXTRA_CFLAGS="$(EXTRA_CFLAGS) -g -Werror -I@SRCDIR@/include" modules_install
+	$(MAKE) -C $(KSRC) M=@SRCDIR@/driver EXTRA_CFLAGS="$(EXTRA_CFLAGS) -g -Werror -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(IDS) -I@SRCDIR@/include" modules_install
 
 ker_clean:
 	$(MAKE) -C $(KSRC) M=@SRCDIR@/driver clean

@@ -5,6 +5,8 @@
 #include "types.h"
 #include "bpfhv_kprobes.h"
 #include "bpfhv_ids_flow.h"
+#include "bpfhv_progs_registry.h"
+#include "log.h"
 
 
 /*#define sched_preempt_enable_no_resched() \
@@ -14,6 +16,16 @@
     } while (0)
 #define preempt_enable_no_resched() sched_preempt_enable_no_resched()*/
 
+
+
+/*
+ * Function prototypes
+ */
+uint32_t run_bpfhv_prog_1(struct bpfhv_info* bi, const uint32_t index, void* arg);
+
+/*
+ * Macros
+ */
 #define reset_current_kprobe() \
     __this_cpu_write(p, NULL);
 
@@ -67,6 +79,7 @@ static int
 __kp_inet_release_pre_handler(struct kprobe *p, struct pt_regs *regs) {
     struct sock* sk;
     struct socket* socket;
+    struct bpfhv_info* owner_bpfhv_info;
     struct flow_id flow_id;
 
     socket = (struct socket*)(uintptr_t)regs->di;
@@ -83,9 +96,15 @@ __kp_inet_release_pre_handler(struct kprobe *p, struct pt_regs *regs) {
         return 0;
     }
 
-    // Delete the flow identified by flow_id (if there is no such flow, the delete function do
-    // nothing)
-    delete_flow(&flow_id);
+    // Check if the flow exists and if it is releated to some BPF program (called the "owner")
+    owner_bpfhv_info = get_flow_owner(&flow_id);
+    if(likely(!owner_bpfhv_info)) {
+        return 0;
+    }
+
+    // If I am here there is an owner and it must be reported that the socket is being released
+    run_bpfhv_prog_1(owner_bpfhv_info, BPFHV_PROG_SOCKET_RELEASED, &flow_id);
+
     return 0;
 }
 
@@ -118,6 +137,8 @@ bpfhv_kprobes_ini(void) {
         return false;
     }
 
+    print_debug("kprobes registered successfully\n");
+
     #endif
 
     return true;
@@ -136,24 +157,3 @@ bpfhv_kprobes_fini(void) {
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Federico Cappellini");
-
-
-
-
-
-
-
-/**
- * kprobe post_handler: called after the probed instruction is executed
- * probed function ->
- *     int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size, int flags);
- * TO DEBUG:
- * printk(
- *     KERN_ERR "__kp_inet_recvmsg_post_handler: p->addr = 0x%p, flags = 0x%lx\n",
- *     p->addr, regs->flags
- * );
- */
-/*static void
-__kp_inet_recvmsg_post_handler(struct kprobe *p, struct pt_regs *regs, unsigned long flags) {
-
-}*/

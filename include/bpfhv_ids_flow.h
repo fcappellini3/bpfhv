@@ -82,6 +82,15 @@ struct flow_iter {
     uint32_t index;
 };
 
+/**
+ * Argument of "srd" (BPFHV_PROG_SOCKET_READ) handler
+ */
+struct srd_handler_arg {
+    struct flow* flow;
+    struct buffer_descriptor* buffer_descriptor_array;
+    uint32_t buffer_descriptor_array_size;
+};
+
 
 // Prototypes
 #ifndef __EBPF__
@@ -120,6 +129,13 @@ bool delete_flow(struct flow_id* flow_id);
  * return: STORE_PKT_SUCCESS, STORE_PKT_ERROR or STORE_PKT_REJECTED
  */
 uint32_t store_pkt(struct flow* flow, void* buff, const uint32_t len);
+
+/**
+ * Get the owner of the flow identified by flow_id. The owner of a flow is the instance of
+ * struct bpfhv_info related the peripheral whose BPF program instantiated the flow.
+ * return: A pointer to the struct bpfhv_info or NULL if such flow does not exists.
+ */
+struct bpfhv_info* get_flow_owner(const struct flow_id* flow_id);
 
 /**
  * Replacement for inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size, int flags).

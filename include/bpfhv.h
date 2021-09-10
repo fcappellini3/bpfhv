@@ -137,12 +137,13 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_tx_buf_dma_unmap,
 	BPFHV_FUNC_smp_mb_full,
 	BPFHV_FUNC_print_num,
-	BPFHV_FUNC_get_bpfhv_pkt,      // added for IDS
-	BPFHV_FUNC_get_shared_memory,  // added for IDS
-	BPFHV_FUNC_get_flow,           // added for IDS
-	BPFHV_FUNC_create_flow,        // added for IDS
-	BPFHV_FUNC_delete_flow,        // added for IDS
-	BPFHV_FUNC_store_pkt           // added for IDS
+	BPFHV_FUNC_get_bpfhv_pkt,          // added for IDS
+	BPFHV_FUNC_get_shared_memory,      // added for IDS
+	BPFHV_FUNC_get_flow,               // added for IDS
+	BPFHV_FUNC_create_flow,            // added for IDS
+	BPFHV_FUNC_delete_flow,            // added for IDS
+	BPFHV_FUNC_store_pkt,              // added for IDS
+	BPFHV_FUNC_send_hypervisor_signal  // added for IDS
 };
 
 #ifndef BPFHV_FUNC
@@ -252,29 +253,6 @@ static void *BPFHV_FUNC(pkt_alloc, struct bpfhv_rx_context *ctx);
  * and the actual eBPF code. The program size is expressed as a number of
  * eBPF instructions (with each instruction being 8 bytes wide). */
 #define BPFHV_REG_PROG_SELECT		56
-enum {
-	BPFHV_PROG_NONE = 0,
-	BPFHV_PROG_RX_PUBLISH,
-	BPFHV_PROG_RX_COMPLETE,
-	BPFHV_PROG_RX_INTRS,
-	BPFHV_PROG_RX_RECLAIM,
-	BPFHV_PROG_RX_POSTPROC,
-	BPFHV_PROG_TX_PUBLISH,
-	BPFHV_PROG_TX_COMPLETE,
-	BPFHV_PROG_TX_INTRS,
-	BPFHV_PROG_TX_RECLAIM,
-	BPFHV_PROG_TX_PREPROC,
-	BPFHV_PROG_EXTRA_0,
-	BPFHV_PROG_EXTRA_1,
-	BPFHV_PROG_EXTRA_2,
-	BPFHV_PROG_EXTRA_3,
-	BPFHV_PROG_EXTRA_4,
-	BPFHV_PROG_EXTRA_5,
-	BPFHV_PROG_EXTRA_6,
-	BPFHV_PROG_EXTRA_7,
-	BPFHV_PROG_PROG_DATA,
-	BPFHV_PROG_MAX
-};
 #define BPFHV_REG_PROG_SIZE		60
 #define BPFHV_PROG_SIZE_MAX		16384
 

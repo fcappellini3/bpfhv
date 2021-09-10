@@ -147,10 +147,14 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
 
                  // Otherwise, let's chek for the capture protocol and procede to create a new flow
                  cap_prot = &global->cap_protos[alarm->cap_prot_index];
+                 s[0]='c'; s[1]='r'; s[2]='e'; s[3] = 0;
+                 print_num(s, 0);
                  flow = create_flow(&flow_id, true, DEFAULT_FLOW_SIZE, ctx);
                  if(!flow) {
                      return IDS_LEVEL(10);
                  }
+                 print_num(s, (uint32_t)(uintptr_t)flow);
+                 print_num(s, flow == get_flow(&flow_id) ? 1 : 0);
                  flow->reserved_bpf = cap_prot;
                  goto a_flow_exists;
              }
@@ -308,29 +312,67 @@ ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
 #ifdef IDS
 
 /**
- * Check a flow
- */
-__section("extra0")
-uint32_t
-check_flow(struct flow* flow) {
-    struct ids_capture_protocol* cap_prot = (struct ids_capture_protocol*)flow->reserved_bpf;
-    if(__check_flow(flow, cap_prot)) {
-        return IDS_LEVEL(cap_prot->ids_level);
-    } else {
-        return IDS_PASS;
-    }
-}
-
-/**
  * Receive post process handler (rxh)
+ * return: BPFHV_PROG_RX_POSTPROC_PKT_DROP to signal that the packet must be dropped or
+ *         BPFHV_PROG_RX_POSTPROC_OK to signal that the packet is legit and can be forwarded to
+ *         higher levels of the network stack
  */
 __section("rxh")
-int rxh_handler(struct bpfhv_rx_context *ctx)
+int
+rxh_handler(struct bpfhv_rx_context *ctx)
 {
     uint32_t level = ids_analyze_eth_pkt_by_context(ctx);
     if(IS_CRITICAL(level))
         return BPFHV_PROG_RX_POSTPROC_PKT_DROP;
     return BPFHV_PROG_RX_POSTPROC_OK;
+}
+
+/**
+ * This "hadler" is called whenever a socket is released.
+ * In this case the only thing we have to do is to delete the corresponding flow.
+ * flow_id: flow_id that corresponds to the releasing socket.
+ */
+__section("srl")
+int
+socket_released_handler(struct flow_id* flow_id) {
+    delete_flow(flow_id);
+    return 0;
+}
+
+/**
+ * This handler is called whenever something reads from a socket that is related to a flow managed
+ * by the current instance of BPFHV
+ */
+__section("srd")
+int
+socket_read_handler(struct srd_handler_arg* arg) {
+    struct ids_capture_protocol* cap_prot;
+    uint32_t i;
+    uint32_t store_result;
+    char str[18];
+
+    // Store in the flow everything in arg
+    for(i = 0; i < arg->buffer_descriptor_array_size; ++i) {
+        store_result = store_pkt(
+            arg->flow,
+            arg->buffer_descriptor_array[i].buff,
+            arg->buffer_descriptor_array[i].len
+        );
+        if(unlikely(store_result != STORE_PKT_SUCCESS)) {
+            print_debug(6);
+            break;
+        }
+    }
+
+    // Perform flow checking
+    cap_prot = (struct ids_capture_protocol*)arg->flow->reserved_bpf;
+    if(unlikely(__check_flow(arg->flow, cap_prot))) {
+        str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='h'; str[7]='e'; str[8]='c'; str[9]='k'; str[10]=' '; str[11]='r'; str[12]='e'; str[13]='s'; str[14]='u'; str[15]='l'; str[16]='t'; str[17]=0;
+        print_num(str, IDS_LEVEL(cap_prot->ids_level));
+        send_hypervisor_signal(arg->flow->owner_bpfhv_info, 0, IDS_LEVEL(cap_prot->ids_level));
+    }
+
+    return 0;
 }
 
 #endif

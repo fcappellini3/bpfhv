@@ -30,6 +30,11 @@ typedef uint16_t net_port_t;  // big endian 16 bit
 #define NULL ((void*)0)
 #endif
 
+struct buffer_descriptor {
+    void* buff;
+    uint64_t len;
+};
+
 
 // Macros
 #ifndef __inline
