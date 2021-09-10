@@ -21,6 +21,7 @@
 /*
  * Function prototypes
  */
+bool bpfhv_prog_is_present(struct bpfhv_info* bi, const uint32_t index);
 uint32_t run_bpfhv_prog_1(struct bpfhv_info* bi, const uint32_t index, void* arg);
 
 /*
@@ -102,8 +103,11 @@ __kp_inet_release_pre_handler(struct kprobe *p, struct pt_regs *regs) {
         return 0;
     }
 
-    // If I am here there is an owner and it must be reported that the socket is being released
-    run_bpfhv_prog_1(owner_bpfhv_info, BPFHV_PROG_SOCKET_RELEASED, &flow_id);
+    // If I am here there is an owner and it must be reported that the socket is being released,
+    // but if the owner has no BPFHV_PROG_SOCKET_RELEASED programs we can avoid this step.
+    if(unlikely(bpfhv_prog_is_present(owner_bpfhv_info, BPFHV_PROG_SOCKET_RELEASED))) {
+        run_bpfhv_prog_1(owner_bpfhv_info, BPFHV_PROG_SOCKET_RELEASED, &flow_id);
+    }
 
     return 0;
 }

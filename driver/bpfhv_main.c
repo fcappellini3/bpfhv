@@ -2170,6 +2170,14 @@ static struct pci_device_id bpfhv_device_table[] = {
 MODULE_DEVICE_TABLE(pci, bpfhv_device_table);
 
 /**
+ * Check if a program is present (optional programs can be present or not)
+ */
+bool
+bpfhv_prog_is_present(struct bpfhv_info* bi, const uint32_t index) {
+	return bi->progs[index] != NULL;
+}
+
+/**
  * Run a BPFHV program from bi
  */
 uint32_t

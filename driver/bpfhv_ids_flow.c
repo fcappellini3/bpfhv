@@ -435,11 +435,14 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     }
 
     // Find the flow that corresponds to this flow_id and check if the recording_enabled flag is
-    // enabled
+    // enabled. If there is no BPFHV_PROG_SOCKET_READ program, we can avoid further steps.
     local_irq_save(irq_flags);
     mutex_lock(&flow_hash_table_mutex);
     flow = get_flow_no_mutex(&flow_id);
-    if(!flow || !flow->recording_enabled) {
+    if(
+        !flow || !flow->recording_enabled ||
+        !bpfhv_prog_is_present(flow->owner_bpfhv_info, BPFHV_PROG_SOCKET_READ)
+    ) {
         mutex_unlock(&flow_hash_table_mutex);
         local_irq_restore(irq_flags);
         return err;
