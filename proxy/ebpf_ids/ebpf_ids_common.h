@@ -29,6 +29,7 @@ static void BPFHV_FUNC(send_hypervisor_signal, struct bpfhv_info* bi, const uint
 
 
 // Macros //
+#define MIN(A, B) ((A) < (B) ? (A) : (B))
 #define IPADDR(a1,a2,a3,a4)    (uint32_t)((a1) << 24 | (a2) << 16 | (a3) << 8 | (a4))
 #define IPADDR_BE(a1,a2,a3,a4)   (__be32)((a4) << 24 | (a3) << 16 | (a2) << 8 | (a1))
 #define IDS_LEVEL(A) (A)
@@ -38,6 +39,11 @@ static void BPFHV_FUNC(send_hypervisor_signal, struct bpfhv_info* bi, const uint
 
 
 // Data structures //
+struct reserved_bpf {
+    struct ids_capture_protocol* cap_prot;
+    uint32_t bytes_stored_from_last_check;
+};
+
 enum ids_alarm_action {
     DROP,
     CAPTURE

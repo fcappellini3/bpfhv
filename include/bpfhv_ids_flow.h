@@ -24,6 +24,7 @@ typedef uint32_t flow_key_t;
 #define STORE_PKT_SUCCESS  0
 #define STORE_PKT_ERROR    1
 #define STORE_PKT_REJECTED 2
+#define FLOW_RESERVED_BPF_SIZE 128
 #ifndef __inline
 # define __inline                         \
    inline __attribute__((always_inline))

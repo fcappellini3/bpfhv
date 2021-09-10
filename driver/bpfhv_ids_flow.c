@@ -97,6 +97,7 @@ __alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const 
     struct flow* flow = kmalloc(sizeof(struct flow), GFP_KERNEL);
     memset(flow, 0, sizeof(*flow));
     flow->owner_bpfhv_info = owner_bpfhv_info;
+    flow->reserved_bpf = kmalloc(FLOW_RESERVED_BPF_SIZE, GFP_KERNEL);
     flow->reserved_kernel = kmalloc(sizeof(struct flow_kernel_reserved), GFP_KERNEL);
     flow->flow_id = *flow_id;
     flow->max_size = max_size;
@@ -165,8 +166,9 @@ __free_flow(struct flow* flow) {
         flow_elem = next_flow_elem;
     }
 
-    // Free kernel reserved data
+    // Free kernel and bpf reserved data
     kfree(flow->reserved_kernel);
+    kfree(flow->reserved_bpf);
 
     // Free the flow itself
     kfree(flow);
@@ -472,10 +474,6 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     // Unlock mutex and restore local IRQ status
     mutex_unlock(&flow_hash_table_mutex);
     local_irq_restore(irq_flags);
-
-
-    /*printk(KERN_ERR "flow_check_result: %d\n", flow_check_result);
-    send_hypervisor_signal(flow->owner_bpfhv_info, 0, flow_check_result);*/
 
 	return err;
 }

@@ -5,7 +5,10 @@
 #include "ebpf_ids_common.h"
 #include "auto_rules.h"
 
-#define DEFAULT_FLOW_SIZE 1*1024*1024
+#define DEFAULT_FLOW_SIZE (1*1024*1024)
+#define MAX_STORE_SIZE (DEFAULT_FLOW_SIZE / 2)
+
+#define get_reserved_bpf(flow) ((struct reserved_bpf*)((flow)->reserved_bpf))
 
 
 struct global {
@@ -70,6 +73,27 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
     }
 
     return false;
+}
+
+
+/**
+ * Check a flow w.r.t. its own struct ids_capture_protocol.
+ * Send a signal to the hypervisor in case of a match.
+ * Reset bytes_stored_from_last_check.
+ */
+static __inline void
+check_flow(struct flow* flow) {
+    if(unlikely(__check_flow(flow, get_reserved_bpf(flow)->cap_prot))) {
+        char str[32];
+        str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='h'; str[7]='e'; str[8]='c'; str[9]='k'; str[10]=' '; str[11]='r'; str[12]='e'; str[13]='s'; str[14]='u'; str[15]='l'; str[16]='t'; str[17]=0;
+        print_num(str, IDS_LEVEL(get_reserved_bpf(flow)->cap_prot->ids_level));
+        send_hypervisor_signal(
+            flow->owner_bpfhv_info,
+            0,
+            IDS_LEVEL(get_reserved_bpf(flow)->cap_prot->ids_level)
+        );
+    }
+    get_reserved_bpf(flow)->bytes_stored_from_last_check = 0;
 }
 
 
@@ -147,15 +171,12 @@ __check_flow(struct flow* flow, struct ids_capture_protocol* cap_prot) {
 
                  // Otherwise, let's chek for the capture protocol and procede to create a new flow
                  cap_prot = &global->cap_protos[alarm->cap_prot_index];
-                 s[0]='c'; s[1]='r'; s[2]='e'; s[3] = 0;
-                 print_num(s, 0);
                  flow = create_flow(&flow_id, true, DEFAULT_FLOW_SIZE, ctx);
                  if(!flow) {
                      return IDS_LEVEL(10);
                  }
-                 print_num(s, (uint32_t)(uintptr_t)flow);
-                 print_num(s, flow == get_flow(&flow_id) ? 1 : 0);
-                 flow->reserved_bpf = cap_prot;
+                 get_reserved_bpf(flow)->cap_prot = cap_prot;
+                 get_reserved_bpf(flow)->bytes_stored_from_last_check = 0;
                  goto a_flow_exists;
              }
          }
@@ -344,35 +365,42 @@ socket_released_handler(struct flow_id* flow_id) {
  * by the current instance of BPFHV
  */
 __section("srd")
-int
+uint32_t
 socket_read_handler(struct srd_handler_arg* arg) {
-    struct ids_capture_protocol* cap_prot;
     uint32_t i;
     uint32_t store_result;
-    char str[18];
+    uint32_t stored_size = 0;
+    byte* buff;
+    uint32_t len;
+    uint32_t step_len;
 
-    // Store in the flow everything in arg
+    // Store in the flow everything in arg (max len per store: MAX_STORE_SIZE)
     for(i = 0; i < arg->buffer_descriptor_array_size; ++i) {
-        store_result = store_pkt(
-            arg->flow,
-            arg->buffer_descriptor_array[i].buff,
-            arg->buffer_descriptor_array[i].len
-        );
-        if(unlikely(store_result != STORE_PKT_SUCCESS)) {
-            print_debug(6);
-            break;
+        buff = (byte*)arg->buffer_descriptor_array[i].buff;
+        len = arg->buffer_descriptor_array[i].len;
+        while(len) {
+            step_len = MIN(len, MAX_STORE_SIZE);
+            store_result = store_pkt(arg->flow, buff, step_len);
+            if(unlikely(store_result != STORE_PKT_SUCCESS)) {
+                print_debug(6);
+                break;
+            }
+            get_reserved_bpf(arg->flow)->bytes_stored_from_last_check += step_len;
+            stored_size += step_len;
+            buff += step_len;
+            len -= step_len;
+
+            // If enough bytes are stored perform a check
+            if(get_reserved_bpf(arg->flow)->bytes_stored_from_last_check >= MAX_STORE_SIZE) {
+                check_flow(arg->flow);
+            }
         }
     }
 
-    // Perform flow checking
-    cap_prot = (struct ids_capture_protocol*)arg->flow->reserved_bpf;
-    if(unlikely(__check_flow(arg->flow, cap_prot))) {
-        str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='h'; str[7]='e'; str[8]='c'; str[9]='k'; str[10]=' '; str[11]='r'; str[12]='e'; str[13]='s'; str[14]='u'; str[15]='l'; str[16]='t'; str[17]=0;
-        print_num(str, IDS_LEVEL(cap_prot->ids_level));
-        send_hypervisor_signal(arg->flow->owner_bpfhv_info, 0, IDS_LEVEL(cap_prot->ids_level));
-    }
+    // Perform flow checking at the end independently of bytes_stored_from_last_check
+    check_flow(arg->flow);
 
-    return 0;
+    return stored_size;
 }
 
 #endif
