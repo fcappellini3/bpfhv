@@ -40,6 +40,7 @@ DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 /*
  * Function prototypes
  */
+bool bpfhv_prog_is_present(struct bpfhv_info* bi, const uint32_t index);
 uint32_t run_bpfhv_prog_1(struct bpfhv_info* bi, const uint32_t index, void* arg);
 static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 
