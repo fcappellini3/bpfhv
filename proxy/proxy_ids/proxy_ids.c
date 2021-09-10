@@ -263,6 +263,13 @@ craft_bpfhv_pkt(void* buff, uint32_t len) {
             return 0;
     }
 
+    if(unlikely(global_bpfhv_pkt.payload_len >= len)) {
+        print_error(
+            "craft_bpfhv_pkt(...) -> pkt crafted wrong -> payload_len: %d, len: %d\n",
+            global_bpfhv_pkt.payload_len, len
+        );
+    }
+
     return &global_bpfhv_pkt;
 }
 
@@ -618,7 +625,7 @@ __ids_deep_scan(struct bpfhv_pkt* pkt) {
     // Find packet payload and flow_id
     struct iphdr* ip_header = pkt->ip_header;
     if(ip_header->version != 4) {
-     return IDS_PASS;
+        return IDS_PASS;
     }
     flow_id.src_ip = ip_header->saddr;
     flow_id.dest_ip = ip_header->daddr;
@@ -661,6 +668,8 @@ __ids_deep_scan(struct bpfhv_pkt* pkt) {
                 if(alarm->action == DROP) {
                     return IDS_LEVEL(10);
                 }
+
+                print_always("Found alarm_index %d at position %d\n", alarm_index, find_res);
 
                 // Otherwise, let's chek for the capture protocol and procede to create a new flow
                 cap_prot = &ids_rules.cap_protos[alarm->cap_prot_index];

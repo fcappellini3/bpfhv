@@ -219,9 +219,6 @@ sring_gso_rxq_push(BpfhvBackend *be, BpfhvBackendQueue *rxq,
         /* Read into the scatter-gather buffer referenced by the collected
          * descriptors. */
         pktsize = be->recv(be, iov, iovcnt);
-        #ifdef PROXY_IDS
-        ids_analyze_eth_pkt_by_buffer(iov->iov_base, pktsize);
-        #endif
         if (pktsize <= 0) {
             /* No more data to read (or error). We need to rewind to the
              * first unused descriptor and stop. */
@@ -231,6 +228,9 @@ sring_gso_rxq_push(BpfhvBackend *be, BpfhvBackendQueue *rxq,
             }
             break;
         }
+        #ifdef PROXY_IDS
+        ids_analyze_eth_pkt_by_buffer(iov->iov_base, pktsize);
+        #endif
 #if 0
         printf("Received %d bytes\n", ret);
 #endif

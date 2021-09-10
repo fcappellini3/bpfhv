@@ -11,6 +11,7 @@
 #endif
 
 #define print_error(args...) printk(KERN_ERR args)
+#define print_always(args...) printk(KERN_ERR args)
 
 #else
 
@@ -21,6 +22,7 @@
 #endif
 
 #define print_error(args...) fprintf(stderr, args)
+#define print_always(args...) fprintf(stderr, args)
 
 #endif
 
