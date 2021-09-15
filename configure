@@ -24,6 +24,9 @@ KER_INSTALL_DEPS="ker"
 NETMAP="n"
 DEBUG_LEVEL=0
 IDS=""
+PROXY_IDS=""
+PROXY_IDS_SRC=""
+PROXY_IDS_HDR=""
 
 # Option parsing
 while [[ $# > 0 ]]
@@ -86,6 +89,12 @@ do
         IDS="-DIDS=1"
         ;;
 
+        "--proxy_ids")
+        PROXY_IDS="-DPROXY_IDS=1"
+        PROXY_IDS_SRC="\$PROXY_IDS_SRC"
+        PROXY_IDS_HDR="\$PROXY_IDS_HDR"
+        ;;
+
         *)
         echo "Unknown option '$key'"
         echo "Try ./configure --help"
@@ -105,3 +114,6 @@ sed -i "s|@INSTALL_MOD_PATH@|${INSTALL_PREFIX}|g" $SRCDIR/Makefile
 sed -i "s|@KERNBUILDDIR@|$KERNBUILDDIR|g" $SRCDIR/Makefile
 sed -i "s|@DEBUG_LEVEL@|$DEBUG_LEVEL|g" $SRCDIR/Makefile
 sed -i "s|@IDS@|$IDS|g" $SRCDIR/Makefile
+sed -i "s|@PROXY_IDS@|$PROXY_IDS|g" $SRCDIR/Makefile
+sed -i "s|@PROXY_IDS_SRC@|$PROXY_IDS_SRC|g" $SRCDIR/Makefile
+sed -i "s|@PROXY_IDS_HDR@|$PROXY_IDS_HDR|g" $SRCDIR/Makefile

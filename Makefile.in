@@ -7,6 +7,7 @@ DEFS += -DWITH_NETMAP
 endif
 DEBUG_LEVEL=@DEBUG_LEVEL@
 IDS=@IDS@
+PROXY_IDS=@PROXY_IDS@
 
 all: ker proxy
 
@@ -30,17 +31,20 @@ ker_clean:
 endif
 
 ifeq ("PROXY@PROXY@", "PROXYy")
-PROGS = proxy/backend proxy/sring_progs.o proxy/sring_gso_progs.o proxy/vring_packed_progs.o
+PROGS = proxy/backend proxy/backend-multi proxy/sring_progs.o proxy/sring_gso_progs.o proxy/vring_packed_progs.o
 
 proxy: $(PROGS)
 
-BESRCS=proxy/backend.c proxy/sring.c proxy/sring_gso.c proxy/vring_packed.c
-BEHDRS=include/bpfhv-proxy.h include/bpfhv.h proxy/sring.h proxy/sring_gso.h proxy/vring_packed.h proxy/backend.h
-BESRCS_IDS=proxy/backend.c proxy/sring.c proxy/sring_gso.c proxy/vring_packed.c proxy/proxy_ids/proxy_ids.c
-BEHDRS_IDS=include/bpfhv-proxy.h include/bpfhv.h proxy/sring.h proxy/sring_gso.h proxy/vring_packed.h proxy/backend.h proxy/proxy_ids/proxy_ids.h proxy/proxy_ids/hashmap.h
+PROXY_IDS_SRC=proxy/proxy_ids/proxy_ids.c
+PROXY_IDS_HDR=proxy/proxy_ids/proxy_ids.h proxy/proxy_ids/hashmap.h
+BESRCS=proxy/backend.c proxy/sring.c proxy/sring_gso.c proxy/vring_packed.c @PROXY_IDS_SRC@
+BEHDRS=include/bpfhv-proxy.h include/bpfhv.h proxy/sring.h proxy/sring_gso.h proxy/vring_packed.h proxy/backend.h @PROXY_IDS_HDR@
 
 proxy/backend: $(BESRCS) $(BEHDRS)
-	$(CC) -O2 -g -Wall -Werror -Wno-address-of-packed-member -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(IDS) -I @SRCDIR@/include $(DEFS) -o $@ $(BESRCS) $(LIBS)
+	$(CC) -O2 -g -Wall -Werror -Wno-address-of-packed-member -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(PROXY_IDS) $(IDS) -I @SRCDIR@/include $(DEFS) -o $@ $(BESRCS) $(LIBS)
+
+proxy/backend-multi: $(BESRCS) $(BEHDRS)
+	$(CC) -O2 -g -Wall -Werror -Wno-address-of-packed-member -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(PROXY_IDS) $(IDS) -DMULTI_BACKEND=1 -I @SRCDIR@/include $(DEFS) -o $@ $(BESRCS) $(LIBS)
 
 proxy/sring_progs.o: proxy/sring_progs.c proxy/sring.h include/bpfhv.h
 	clang -O2 -Wall -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(IDS) -I @SRCDIR@/include -target bpf -c $< -o $@
@@ -50,9 +54,6 @@ proxy/sring_gso_progs.o: proxy/sring_gso_progs.c proxy/sring_gso.h include/bpfhv
 
 proxy/vring_packed_progs.o: proxy/vring_packed_progs.c proxy/vring_packed.h include/bpfhv.h
 	clang -O2 -Wall -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(IDS) -I @SRCDIR@/include -target bpf -c $< -o $@
-
-backend_ids: $(BESRCS_IDS) $(BEHDRS_IDS)
-	$(CC) -O2 -g -Wall -Werror -Wno-address-of-packed-member -DPROXY_IDS -DDEBUG_LEVEL=$(DEBUG_LEVEL) $(IDS) -I @SRCDIR@/include $(DEFS) -o proxy/backend $(BESRCS_IDS) $(LIBS)
 
 proxy_clean:
 	-rm -rf $(PROGS)

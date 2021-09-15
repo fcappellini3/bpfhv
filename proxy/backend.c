@@ -20,6 +20,9 @@
 #include <sys/uio.h>
 #include <sys/time.h>
 #include <signal.h>
+#ifdef MULTI_BACKEND
+#include <sys/select.h>
+#endif
 #ifdef WITH_NETMAP
 #include <libnetmap.h>
 #endif
@@ -33,6 +36,10 @@ int verbose = 0;
 #define RXI_END(_s)     (_s)->num_queue_pairs
 #define TXI_BEGIN(_s)   (_s)->num_queue_pairs
 #define TXI_END(_s)     (_s)->num_queues
+#define SET_ALL_BES(WHAT, VALUE) for(i = 0; i < bes_size; ++i) bes[i].WHAT = VALUE
+#define ALL_BES for(i = 0; i < bes_size; ++i) bes[i]
+#define MAX_BES_SIZE 128
+#define GET_READY_BACKEND_FAIL (void*)(uintptr_t)(uint64_t)0xFFFFFFFFFFFFFFFFULL
 
 #define OPT_TXCSUM      (1 << 0)
 #define OPT_RXCSUM      (1 << 1)
@@ -40,7 +47,12 @@ int verbose = 0;
 #define OPT_LRO         (1 << 3)
 
 /* Main data structure. */
+#ifdef MULTI_BACKEND
+static BpfhvBackend* bes;
+static uint32_t bes_size;
+#else
 static BpfhvBackend be;
+#endif
 
 /* Helper functions to signal and drain eventfds. */
 static inline void
@@ -631,6 +643,100 @@ stats_show(BpfhvBackend *be)
     be->stats_ts = t;
 }
 
+static int
+tap_alloc(const char *ifname, int vnet_hdr_len, int opt_offload)
+{
+    unsigned int offloads = 0;
+    struct ifreq ifr;
+    int fd, err;
+
+    if (ifname == NULL) {
+        fprintf(stderr, "Missing tap ifname\n");
+        return -1;
+    }
+
+    /* Open the clone device. */
+    fd = open("/dev/net/tun", O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "open(/dev/net/tun) failed: %s\n",
+                strerror(errno));
+        return fd;
+    }
+
+    memset(&ifr, 0, sizeof(ifr));
+    /* IFF_TAP, IFF_TUN, IFF_NO_PI, IFF_VNET_HDR */
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    if (opt_offload) {
+        ifr.ifr_flags |= IFF_VNET_HDR;
+    }
+    strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+    ifr.ifr_name[IFNAMSIZ-1] = '\0';
+
+    /* Try to create the device. */
+    err = ioctl(fd, TUNSETIFF, (void *)&ifr);
+    if(err < 0) {
+        fprintf(stderr, "ioctl(befd, TUNSETIFF) failed: %s\n",
+                strerror(errno));
+        close(fd);
+        return err;
+    }
+
+    if (opt_offload) {
+        err = ioctl(fd, TUNSETVNETHDRSZ, &vnet_hdr_len);
+        if (err < 0) {
+            fprintf(stderr, "ioctl(befd, TUNSETIFF) failed: %s\n",
+                    strerror(errno));
+        }
+
+        if (opt_offload & OPT_RXCSUM) {
+            offloads |= TUN_F_CSUM;
+            if (opt_offload & OPT_LRO) {
+                offloads |= TUN_F_TSO4 | TUN_F_TSO6 | TUN_F_UFO;
+            }
+        }
+    }
+
+    err = ioctl(fd, TUNSETOFFLOAD, offloads);
+    if (err < 0) {
+        fprintf(stderr, "ioctl(befd, TUNSETOFFLOAD) failed: %s\n",
+                strerror(errno));
+    }
+
+    return fd;
+}
+
+static void
+check_alignments(void)
+{
+    sring_ops.rx_check_alignment();
+    sring_ops.tx_check_alignment();
+    sring_gso_ops.rx_check_alignment();
+    sring_gso_ops.tx_check_alignment();
+    vring_packed_ops.rx_check_alignment();
+    vring_packed_ops.tx_check_alignment();
+}
+
+static void
+usage(const char *progname)
+{
+    printf("%s:\n"
+           "    -h (show this help and exit)\n"
+           "    -p UNIX_SOCKET_PATH\n"
+           "    -P PID_FILE\n"
+           "    -i INTERFACE_NAME\n"
+           "    -b BACKEND_TYPE (tap,sink,source,netmap)\n"
+           "    -d DEVICE_TYPE (sring,sring_gso,vring_packed)\n"
+           "    -O OFFLOAD (txcsum,rxcsum,tso,lro)\n"
+           "    -C (enable TX/RX checksum offloads)\n"
+           "    -G (enable TCP/UDP GSO offloads)\n"
+           "    -B (run in busy-wait mode)\n"
+           "    -S (show run-time statistics)\n"
+           "    -u MICROSECONDS (per iteration sleep)\n"
+           "    -v (increase verbosity level)\n",
+            progname);
+}
+
+#ifndef MULTI_BACKEND
 static void
 sigint_handler(int signum)
 {
@@ -1275,99 +1381,6 @@ send_resp:
     return ret;
 }
 
-static int
-tap_alloc(const char *ifname, int vnet_hdr_len, int opt_offload)
-{
-    unsigned int offloads = 0;
-    struct ifreq ifr;
-    int fd, err;
-
-    if (ifname == NULL) {
-        fprintf(stderr, "Missing tap ifname\n");
-        return -1;
-    }
-
-    /* Open the clone device. */
-    fd = open("/dev/net/tun", O_RDWR);
-    if (fd < 0) {
-        fprintf(stderr, "open(/dev/net/tun) failed: %s\n",
-                strerror(errno));
-        return fd;
-    }
-
-    memset(&ifr, 0, sizeof(ifr));
-    /* IFF_TAP, IFF_TUN, IFF_NO_PI, IFF_VNET_HDR */
-    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-    if (opt_offload) {
-        ifr.ifr_flags |= IFF_VNET_HDR;
-    }
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
-    ifr.ifr_name[IFNAMSIZ-1] = '\0';
-
-    /* Try to create the device. */
-    err = ioctl(fd, TUNSETIFF, (void *)&ifr);
-    if(err < 0) {
-        fprintf(stderr, "ioctl(befd, TUNSETIFF) failed: %s\n",
-                strerror(errno));
-        close(fd);
-        return err;
-    }
-
-    if (opt_offload) {
-        err = ioctl(fd, TUNSETVNETHDRSZ, &vnet_hdr_len);
-        if (err < 0) {
-            fprintf(stderr, "ioctl(befd, TUNSETIFF) failed: %s\n",
-                    strerror(errno));
-        }
-
-        if (opt_offload & OPT_RXCSUM) {
-            offloads |= TUN_F_CSUM;
-            if (opt_offload & OPT_LRO) {
-                offloads |= TUN_F_TSO4 | TUN_F_TSO6 | TUN_F_UFO;
-            }
-        }
-    }
-
-    err = ioctl(fd, TUNSETOFFLOAD, offloads);
-    if (err < 0) {
-        fprintf(stderr, "ioctl(befd, TUNSETOFFLOAD) failed: %s\n",
-                strerror(errno));
-    }
-
-    return fd;
-}
-
-static void
-check_alignments(void)
-{
-    sring_ops.rx_check_alignment();
-    sring_ops.tx_check_alignment();
-    sring_gso_ops.rx_check_alignment();
-    sring_gso_ops.tx_check_alignment();
-    vring_packed_ops.rx_check_alignment();
-    vring_packed_ops.tx_check_alignment();
-}
-
-static void
-usage(const char *progname)
-{
-    printf("%s:\n"
-           "    -h (show this help and exit)\n"
-           "    -p UNIX_SOCKET_PATH\n"
-           "    -P PID_FILE\n"
-           "    -i INTERFACE_NAME\n"
-           "    -b BACKEND_TYPE (tap,sink,source,netmap)\n"
-           "    -d DEVICE_TYPE (sring,sring_gso,vring_packed)\n"
-           "    -O OFFLOAD (txcsum,rxcsum,tso,lro)\n"
-           "    -C (enable TX/RX checksum offloads)\n"
-           "    -G (enable TCP/UDP GSO offloads)\n"
-           "    -B (run in busy-wait mode)\n"
-           "    -S (show run-time statistics)\n"
-           "    -u MICROSECONDS (per iteration sleep)\n"
-           "    -v (increase verbosity level)\n",
-            progname);
-}
-
 int
 main(int argc, char **argv)
 {
@@ -1678,3 +1691,1060 @@ main(int argc, char **argv)
 
     return ret;
 }
+#endif
+
+#ifdef MULTI_BACKEND
+static void
+sigint_handler(int signum)
+{
+    uint32_t i;
+
+    for(i = 0; i < bes_size; ++i) {
+        if(bes[i].running) {
+            if(verbose) {
+                printf("Running backend %d interrupted\n", i);
+            }
+            backend_stop(&bes[i]);
+            backend_drain(&bes[i]);
+        }
+        if(bes[i].pidfile != NULL) {
+            unlink(bes[i].pidfile);
+        }
+    }
+    exit(EXIT_SUCCESS);
+}
+
+static inline BpfhvBackend*
+get_ready_backend(const int poll_timeout)
+{
+    struct pollfd pfds[MAX_BES_SIZE];
+    uint32_t i;
+    int poll_result;
+
+    for(i = 0; i < bes_size; ++i) {
+        pfds[i].fd = bes[i].cfd;
+        pfds[i].events = POLLIN;
+    }
+
+    poll_result = poll(&pfds[0], bes_size, poll_timeout);
+
+    if(unlikely(!poll_result)) {
+        return NULL;
+    } else if(unlikely(poll_result < 0)) {
+        return GET_READY_BACKEND_FAIL;
+    } else {
+        for(i = 0; i < bes_size; ++i) {
+            if(pfds[i].revents & POLLIN) {
+                return &bes[i];
+            }
+        }
+    }
+
+    return NULL;
+}
+
+static int
+main_loop()
+{
+    BpfhvBackend* be;
+    int poll_timeout = -1;
+    int ret = -1;
+    int i;
+    uint32_t be_index;
+
+    for(be_index = 0; be_index < bes_size; ++be_index) {
+        be = &bes[be_index];
+
+        be->features_sel = 0;
+        be->num_queue_pairs = be->num_queues = 0;
+        be->num_rx_bufs = 0;
+        be->num_tx_bufs = 0;
+        be->running = 0;
+        be->status = 0;
+        be->upgrade_fd = -1;
+
+        for (i = 0; i < BPFHV_MAX_QUEUES; i++) {
+            be->q[i].ctx.rx = NULL;
+            be->q[i].kickfd = be->q[i].irqfd = -1;
+        }
+
+        be->stopfd = eventfd(0, 0);
+        if (be->stopfd < 0) {
+            fprintf(stderr, "eventfd() failed: %s\nbe_index: %d\n", strerror(errno), be_index);
+            return -1;
+        }
+        be->stopflag = 0;
+
+        ret = fcntl(be->stopfd, F_SETFL, O_NONBLOCK);
+        if (ret) {
+            fprintf(
+                stderr, "fcntl(stopfd, F_SETFL) failed: %s\nbe_index: %d\n",
+                strerror(errno), be_index
+            );
+            return -1;
+        }
+
+        ret = fcntl(be->befd, F_SETFL, O_NONBLOCK);
+        if (ret) {
+            fprintf(
+                stderr, "fcntl(befd, F_SETFL) failed: %s\nbe_index: %d\n",
+                strerror(errno), be_index
+            );
+            return -1;
+        }
+
+        gettimeofday(&be->stats_ts, NULL);
+
+        if(be->collect_stats) {
+            poll_timeout = 2000;/*ms*/
+        }
+    }
+
+    for (;;) {
+        ssize_t payload_size = 0;
+        BpfhvProxyMessage resp = { };
+
+        /* Variables to store recvmsg() ancillary data. */
+        int fds[BPFHV_PROXY_MAX_REGIONS] = { };
+        size_t num_fds = 0;
+
+        /* Variables to store sendmsg() ancillary data. */
+        int outfds[BPFHV_PROXY_MAX_REGIONS] = { };
+        size_t num_outfds = 0;
+
+        /* Support variables for reading a bpfhv-proxy message header. */
+        char control[CMSG_SPACE(BPFHV_PROXY_MAX_REGIONS * sizeof(fds[0]))] = {};
+        BpfhvProxyMessage msg = { };
+        struct iovec iov = {
+            .iov_base = &msg.hdr,
+            .iov_len = sizeof(msg.hdr),
+        };
+        struct msghdr mh = {
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+            .msg_control = control,
+            .msg_controllen = sizeof(control),
+        };
+        struct cmsghdr *cmsg;
+        ssize_t n;
+
+        /* Wait for the next message to arrive. */
+        be = get_ready_backend(poll_timeout);
+        if (unlikely(!be)) {
+            /* Timeout. We need to compute and show statistics. */
+            for(i = 0; i < bes_size; ++i) {
+                if(bes[i].running) {
+                    stats_show(&bes[i]);
+                }
+            }
+            continue;
+        } else if (unlikely(be == GET_READY_BACKEND_FAIL)) {
+            break;
+        }
+
+        /* Read a bpfhv-proxy message header plus ancillary data. */
+        do {
+            n = recvmsg(be->cfd, &mh, 0);
+        } while (n < 0 && (errno == EINTR || errno == EAGAIN));
+        if (n < 0) {
+            fprintf(stderr, "recvmsg(cfd) failed: %s\n", strerror(errno));
+            break;
+        }
+
+        if (n == 0) {
+            /* EOF */
+            if (verbose) {
+                printf("Connection closed by the hypervisor\n");
+            }
+            break;
+        }
+
+        /* Scan ancillary data looking for file descriptors. */
+        for (cmsg = CMSG_FIRSTHDR(&mh); cmsg != NULL;
+                cmsg = CMSG_NXTHDR(&mh, cmsg)) {
+            if (cmsg->cmsg_level == SOL_SOCKET &&
+                    cmsg->cmsg_type == SCM_RIGHTS) {
+                size_t arr_size = cmsg->cmsg_len - CMSG_LEN(0);
+
+                num_fds = arr_size / sizeof(fds[0]);
+                if (num_fds > BPFHV_PROXY_MAX_REGIONS) {
+                    fprintf(stderr, "Message contains too much ancillary data "
+                            "(%zu file descriptors)\n", num_fds);
+                    return -1;
+                }
+                memcpy(fds, CMSG_DATA(cmsg), arr_size);
+
+                break; /* Discard any other ancillary data. */
+            }
+        }
+
+        if (n < (ssize_t)sizeof(msg.hdr)) {
+            fprintf(stderr, "Message too short (%zd bytes)\n", n);
+            break;
+        }
+
+        if ((msg.hdr.flags & BPFHV_PROXY_F_VERSION_MASK)
+                != BPFHV_PROXY_VERSION) {
+            fprintf(stderr, "Protocol version mismatch: expected %u, got %u",
+                    BPFHV_PROXY_VERSION,
+                    msg.hdr.flags & BPFHV_PROXY_F_VERSION_MASK);
+            break;
+        }
+
+        /* Check that payload size is correct. */
+        switch (msg.hdr.reqtype) {
+        case BPFHV_PROXY_REQ_GET_FEATURES:
+        case BPFHV_PROXY_REQ_GET_PROGRAMS:
+        case BPFHV_PROXY_REQ_RX_ENABLE:
+        case BPFHV_PROXY_REQ_TX_ENABLE:
+        case BPFHV_PROXY_REQ_RX_DISABLE:
+        case BPFHV_PROXY_REQ_TX_DISABLE:
+            payload_size = 0;
+            break;
+
+        case BPFHV_PROXY_REQ_SET_FEATURES:
+            payload_size = sizeof(msg.payload.u64);
+            break;
+
+        case BPFHV_PROXY_REQ_SET_PARAMETERS:
+            payload_size = sizeof(msg.payload.params);
+            break;
+
+        case BPFHV_PROXY_REQ_SET_MEM_TABLE:
+            payload_size = sizeof(msg.payload.memory_map);
+            break;
+
+        case BPFHV_PROXY_REQ_SET_QUEUE_CTX:
+            payload_size = sizeof(msg.payload.queue_ctx);
+            break;
+
+        case BPFHV_PROXY_REQ_SET_QUEUE_KICK:
+        case BPFHV_PROXY_REQ_SET_QUEUE_IRQ:
+        case BPFHV_PROXY_REQ_SET_UPGRADE:
+            payload_size = sizeof(msg.payload.notify);
+            break;
+
+        default:
+            fprintf(stderr, "Invalid request type (%d)\n", msg.hdr.reqtype);
+            return -1;
+        }
+
+        if (payload_size != msg.hdr.size) {
+            fprintf(stderr, "Payload size mismatch: expected %zd, got %u\n",
+                    payload_size, msg.hdr.size);
+            break;
+        }
+
+        /* Read payload. */
+        do {
+            n = read(be->cfd, &msg.payload, payload_size);
+        } while (n < 0 && (errno == EINTR || errno == EAGAIN));
+        if (n < 0) {
+            fprintf(stderr, "read(cfd, payload) failed: %s\n",
+                    strerror(errno));
+            break;
+        }
+
+        if (n != payload_size) {
+            fprintf(stderr, "Truncated payload: expected %zd bytes, "
+                    "but only %zd were read\n", payload_size, n);
+            break;
+        }
+
+        resp.hdr.reqtype = msg.hdr.reqtype;
+        resp.hdr.flags = BPFHV_PROXY_VERSION;
+
+        /* Check if this request is acceptable while the backend
+         * is running. */
+        switch (msg.hdr.reqtype) {
+        case BPFHV_PROXY_REQ_SET_FEATURES:
+        case BPFHV_PROXY_REQ_SET_PARAMETERS:
+        case BPFHV_PROXY_REQ_SET_QUEUE_CTX:
+        case BPFHV_PROXY_REQ_SET_QUEUE_KICK:
+            if (be->running) {
+                fprintf(stderr, "Cannot accept request because backend "
+                                "is running\n");
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                goto send_resp;
+            }
+            break;
+        default:
+            break;
+        }
+
+        /* Process the request. */
+        switch (msg.hdr.reqtype) {
+        case BPFHV_PROXY_REQ_SET_FEATURES:
+            be->features_sel = be->features_avail & msg.payload.u64;
+            if (verbose) {
+                printf("Negotiated features %"PRIx64"\n", be->features_sel);
+            }
+            if (be->features_sel &
+                    (BPFHV_F_TCPv4_LRO | BPFHV_F_TCPv6_LRO | BPFHV_F_UDP_LRO)) {
+                be->max_rx_pkt_size = 65536;
+            } else {
+                be->max_rx_pkt_size = 1518;
+            }
+            /* TODO We should also set be->vnet_hdr_len here ... */
+
+            break;
+
+        case BPFHV_PROXY_REQ_GET_FEATURES:
+            resp.hdr.size = sizeof(resp.payload.u64);
+            resp.payload.u64 = be->features_avail;
+            break;
+
+        case BPFHV_PROXY_REQ_SET_PARAMETERS: {
+            BpfhvProxyParameters *params = &msg.payload.params;
+
+            if (params->num_rx_queues != 1 || params->num_tx_queues != 1) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+            } else if (!num_bufs_valid(params->num_rx_bufs) ||
+                       !num_bufs_valid(params->num_tx_bufs)) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+            } else {
+                unsigned int i;
+
+                be->num_queue_pairs = (unsigned int)params->num_rx_queues;
+                be->num_rx_bufs = (unsigned int)params->num_rx_bufs;
+                be->num_tx_bufs = (unsigned int)params->num_tx_bufs;
+                if (verbose) {
+                    printf("Set queue parameters: %u queue pairs, %u rx bufs, "
+                          "%u tx bufs\n", be->num_queue_pairs,
+                           be->num_rx_bufs, be->num_tx_bufs);
+                }
+
+                be->num_queues = 2 * be->num_queue_pairs;
+
+                resp.hdr.size = sizeof(resp.payload.ctx_sizes);
+                resp.payload.ctx_sizes.rx_ctx_size =
+                    be->ops.rx_ctx_size(be->num_rx_bufs);
+                resp.payload.ctx_sizes.tx_ctx_size =
+                    be->ops.tx_ctx_size(be->num_tx_bufs);
+
+                for (i = RXI_BEGIN(be); i < RXI_END(be); i++) {
+                    snprintf(be->q[i].name, sizeof(be->q[i].name),
+                             "RX%u", i);
+                }
+                for (i = TXI_BEGIN(be); i < TXI_END(be); i++) {
+                    snprintf(be->q[i].name, sizeof(be->q[i].name),
+                             "TX%u", i-be->num_queue_pairs);
+                }
+            }
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_SET_MEM_TABLE: {
+            BpfhvProxyMemoryMap *map = &msg.payload.memory_map;
+            size_t i;
+
+            /* Perform sanity checks. */
+            if (map->num_regions > BPFHV_PROXY_MAX_REGIONS) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Too many memory regions: %u\n",
+                        map->num_regions);
+                return -1;
+            }
+            if (num_fds != map->num_regions) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Mismatch between number of regions (%u) and "
+                        "number of file descriptors (%zu)\n",
+                        map->num_regions, num_fds);
+                return -1;
+            }
+
+            /* Clean up previous table. */
+            for (i = 0; i < be->num_regions; i++) {
+                munmap(be->regions[i].mmap_addr,
+                       be->regions[i].mmap_offset + be->regions[i].size);
+            }
+            memset(be->regions, 0, sizeof(be->regions));
+            be->num_regions = 0;
+
+            /* Setup the new table. */
+            for (i = 0; i < map->num_regions; i++) {
+                void *mmap_addr;
+
+                be->regions[i].gpa_start = map->regions[i].guest_physical_addr;
+                be->regions[i].size = map->regions[i].size;
+                be->regions[i].gpa_end = be->regions[i].gpa_start +
+                                         be->regions[i].size;
+                be->regions[i].hv_vaddr =
+                        map->regions[i].hypervisor_virtual_addr;
+                be->regions[i].mmap_offset = map->regions[i].mmap_offset;
+
+                /* We don't feed mmap_offset into the offset argument of
+                 * mmap(), because the mapped address has to be page aligned,
+                 * and we use huge pages. Instead, we map the file descriptor
+                 * from the beginning, with a map size that includes the
+                 * region of interest. */
+                mmap_addr = mmap(0, /*size=*/be->regions[i].mmap_offset +
+                                 be->regions[i].size, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED, /*fd=*/fds[i], /*offset=*/0);
+                if (mmap_addr == MAP_FAILED) {
+                    fprintf(stderr, "mmap(#%zu) failed: %s\n", i,
+                            strerror(errno));
+                    return -1;
+                }
+                be->regions[i].mmap_addr = mmap_addr;
+                be->regions[i].va_start = mmap_addr +
+                                          be->regions[i].mmap_offset;
+            }
+            be->num_regions = map->num_regions;
+
+            if (verbose) {
+                printf("Guest memory map:\n");
+                for (i = 0; i < be->num_regions; i++) {
+                    printf("    gpa %16"PRIx64", size %16"PRIu64", "
+                           "hv_vaddr %16"PRIx64", mmap_ofs %16"PRIx64", "
+                           "va_start %p\n",
+                           be->regions[i].gpa_start, be->regions[i].size,
+                           be->regions[i].hv_vaddr, be->regions[i].mmap_offset,
+                           be->regions[i].va_start);
+                }
+            }
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_GET_PROGRAMS: {
+            resp.hdr.size = 0;
+            outfds[0] = open(be->ops.progfile, O_RDONLY, 0);
+            if (outfds[0] < 0) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "open(%s) failed: %s\n", be->ops.progfile,
+                        strerror(errno));
+                break;
+            }
+            num_outfds = 1;
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_SET_QUEUE_CTX: {
+            uint64_t gpa = msg.payload.queue_ctx.guest_physical_addr;
+            uint32_t queue_idx = msg.payload.queue_ctx.queue_idx;
+            int is_rx = queue_idx < be->num_queue_pairs;
+            size_t ctx_size;
+            void *ctx;
+
+            if (queue_idx >= be->num_queues) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Invalid queue idx %u\n", queue_idx);
+                break;
+            }
+
+            if (be->num_rx_bufs == 0 || be->num_tx_bufs == 0) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Buffer numbers not negotiated\n");
+                break;
+            }
+
+            if (is_rx) {
+                ctx_size = be->ops.rx_ctx_size(be->num_rx_bufs);
+            } else if (queue_idx < be->num_queues) {
+                ctx_size = be->ops.tx_ctx_size(be->num_tx_bufs);
+            }
+
+            if (gpa != 0) {
+                /* A GPA was provided, so let's try to translate it. */
+                ctx = translate_addr(be, gpa, ctx_size);
+                if (ctx == NULL) {
+                    resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                    fprintf(stderr, "Failed to translate gpa %"PRIx64"\n",
+                                     gpa);
+                    break;
+                }
+            } else {
+                /* No GPA provided, which means that there is no context
+                 * for this queue (yet). */
+                ctx = NULL;
+            }
+
+            if (is_rx) {
+                be->q[queue_idx].ctx.rx = (struct bpfhv_rx_context *)ctx;
+                if (ctx) {
+                    be->ops.rx_ctx_init(be->q[queue_idx].ctx.rx,
+                                      be->num_rx_bufs);
+                }
+            } else {
+                be->q[queue_idx].ctx.tx = (struct bpfhv_tx_context *)ctx;
+                if (ctx) {
+                    be->ops.tx_ctx_init(be->q[queue_idx].ctx.tx,
+                                      be->num_tx_bufs);
+                }
+            }
+            if (verbose) {
+                printf("Set queue %s gpa to %"PRIx64", va %p\n",
+                       be->q[queue_idx].name, gpa, ctx);
+            }
+
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_SET_QUEUE_KICK:
+        case BPFHV_PROXY_REQ_SET_QUEUE_IRQ: {
+            int is_kick = msg.hdr.reqtype == BPFHV_PROXY_REQ_SET_QUEUE_KICK;
+            uint32_t queue_idx = msg.payload.notify.queue_idx;
+            int *fdp = NULL;
+
+            if (queue_idx >= be->num_queues) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Invalid queue idx %u\n", queue_idx);
+                break;
+            }
+
+            if (num_fds > 1) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Too many %sfds\n", is_kick ? "kick" : "irq");
+                break;
+            }
+
+            fdp = is_kick ? &be->q[queue_idx].kickfd : &be->q[queue_idx].irqfd;
+
+            /* Clean up previous file descriptor and install the new one. */
+            if (*fdp >= 0) {
+                close(*fdp);
+            }
+            *fdp = (num_fds == 1) ? fds[0] : -1;
+
+            /* Steal it from the fds array to skip close(). */
+            fds[0] = -1;
+
+            if (verbose) {
+                printf("Set queue %s %sfd to %d\n", be->q[queue_idx].name,
+                       is_kick ? "kick" : "irq", *fdp);
+            }
+
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_SET_UPGRADE: {
+            if (num_fds != 1) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Missing upgrade fd\n");
+                break;
+            }
+
+            /* Steal the file descriptor from the fds array to skip close(). */
+            if (be->upgrade_fd >= 0) {
+                close(be->upgrade_fd);
+            }
+            be->upgrade_fd = fds[0];
+            fds[0] = -1;
+
+            if (verbose) {
+                printf("Set upgrade notifier to %d\n", be->upgrade_fd);
+            }
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_RX_ENABLE:
+        case BPFHV_PROXY_REQ_TX_ENABLE: {
+            int is_rx = msg.hdr.reqtype == BPFHV_PROXY_REQ_RX_ENABLE;
+            int ret;
+
+            /* Check that backend is ready for packet processing. */
+            if (!backend_ready(be)) {
+                resp.hdr.flags |= BPFHV_PROXY_F_ERROR;
+                fprintf(stderr, "Cannot enable %s operation: backend is "
+                        "not ready\n", is_rx ? "receive" : "transmit");
+                break;
+            }
+
+            /* Update be->status. */
+            if (is_rx) {
+                be->status |= BPFHV_STATUS_RX_ENABLED;
+            } else {
+                be->status |= BPFHV_STATUS_TX_ENABLED;
+            }
+
+            if (be->running) {
+                break;  /* Nothing to do */
+            }
+
+            /* Make sure that the processing thread sees stopflag == 0. */
+            be->stopflag = 0;
+            __atomic_thread_fence(__ATOMIC_RELEASE);
+
+            ret = pthread_create(&be->th, NULL, process_packets, be);
+            if (ret) {
+                fprintf(stderr, "pthread_create() failed: %s\n",
+                        strerror(ret));
+                break;
+            }
+            be->running = 1;
+            if (verbose) {
+                printf("Backend starts processing\n");
+            }
+            break;
+        }
+
+        case BPFHV_PROXY_REQ_RX_DISABLE:
+        case BPFHV_PROXY_REQ_TX_DISABLE: {
+            int is_rx = msg.hdr.reqtype == BPFHV_PROXY_REQ_RX_DISABLE;
+            int ret;
+
+            /* Update be->status. */
+            if (is_rx) {
+                be->status &= ~BPFHV_STATUS_RX_ENABLED;
+            } else {
+                be->status &= ~BPFHV_STATUS_TX_ENABLED;
+            }
+
+            if (!be->running || ((be->status & (BPFHV_STATUS_RX_ENABLED |
+                                BPFHV_STATUS_TX_ENABLED)) != 0)) {
+                break;  /* Nothing to do. */
+            }
+
+            /* Notify the worker thread and join it. */
+            ret = backend_stop(be);
+            if (ret) {
+                break;
+            }
+
+            /* Drain any remaining packets. */
+            backend_drain(be);
+            if (verbose) {
+                printf("Backend stops processing\n");
+            }
+            break;
+        }
+
+        default:
+            /* Not reached (see switch statement above). */
+            assert(0);
+            break;
+        }
+
+send_resp:
+        /* Send back the response. */
+        {
+            char control[CMSG_SPACE(BPFHV_PROXY_MAX_REGIONS * sizeof(fds[0]))];
+            size_t totsize = sizeof(resp.hdr) + resp.hdr.size;
+            struct iovec iov = {
+                .iov_base = &resp,
+                .iov_len = totsize,
+            };
+            struct msghdr mh = {
+                .msg_iov = &iov,
+                .msg_iovlen = 1,
+            };
+
+            if (num_outfds > 0) {
+                /* Set ancillary data. */
+                size_t data_size = num_outfds * sizeof(fds[0]);
+                struct cmsghdr *cmsg;
+
+                assert(num_outfds <= BPFHV_PROXY_MAX_REGIONS);
+
+                mh.msg_control = control;
+                mh.msg_controllen = CMSG_SPACE(data_size);
+
+                cmsg = CMSG_FIRSTHDR(&mh);
+                cmsg->cmsg_len = CMSG_LEN(data_size);
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type = SCM_RIGHTS;
+                memcpy(CMSG_DATA(cmsg), outfds, data_size);
+            }
+
+            do {
+                n = sendmsg(be->cfd, &mh, 0);
+            } while (n < 0 && (errno == EINTR || errno == EAGAIN));
+            if (n < 0) {
+                fprintf(stderr, "sendmsg(cfd) failed: %s\n", strerror(errno));
+                break;
+            } else if (n != totsize) {
+                fprintf(stderr, "Truncated send (%zu/%zu)\n", n, totsize);
+                break;
+            }
+        }
+
+        /* Close all the file descriptors passed as ancillary data. */
+        {
+            size_t i;
+
+            for (i = 0; i < num_fds; i++) {
+                if (fds[i] >= 0) {
+                    close(fds[i]);
+                }
+            }
+            for (i = 0; i < num_outfds; i++) {
+                if (outfds[i] >= 0) {
+                    close(outfds[i]);
+                }
+            }
+        }
+    }
+
+    close(be->stopfd);
+
+    return ret;
+}
+
+int
+main(int argc, char** argv)
+{
+    struct sockaddr_un server_addrs[MAX_BES_SIZE];
+    const char* ifnames[MAX_BES_SIZE];
+    const char* paths[MAX_BES_SIZE];
+    struct sigaction sa;
+    uint32_t i;
+    int opt_offload = 0;
+    int opt;
+    int ret;
+
+    check_alignments();
+
+    // Default initialization
+    memset(&server_addrs[0], 0x00, sizeof(struct sockaddr_un) * MAX_BES_SIZE);
+    ifnames[0] = 0;
+    paths[0] = 0;
+    bes_size = MAX_BES_SIZE;
+    bes = malloc(sizeof(*bes) * bes_size);
+    for(i = 0; i < bes_size; ++i) {
+        bes[i].backend = "tap";
+        bes[i].device = "sring";
+        bes[i].pidfile = NULL;
+        bes[i].busy_wait = 0;
+        bes[i].befd = -1;
+        bes[i].collect_stats = 0;
+    }
+
+    while ((opt = getopt(argc, argv, "hp:P:i:CGBvb:Su:d:O:")) != -1) {
+        switch (opt) {
+        case 'h':
+            usage(argv[0]);
+            return 0;
+
+        case 'p': {
+            char* token;
+
+            if(!optarg) {
+                usage(argv[0]);
+                return -1;
+            }
+
+            token = strtok(optarg, ",");
+            bes_size = 0;
+            while(token && bes_size < 128) {
+                paths[bes_size] = token;
+                fprintf(stderr, "paths[%d]: %s\n", bes_size, paths[bes_size]);
+                ++bes_size;
+                token = strtok(NULL, ",");
+            }
+            paths[bes_size] = 0;
+            break;
+        }
+
+        case 'P':
+            //be.pidfile = optarg;
+            fprintf(stderr, "Option -P is unsopported\n");
+            break;
+
+        case 'i': {
+            char* token;
+
+            if(!optarg) {
+                usage(argv[0]);
+                return -1;
+            }
+
+            token = strtok(optarg, ",");
+            bes_size = 0;
+            while(token && bes_size < 128) {
+                ifnames[bes_size] = token;
+                fprintf(stderr, "ifnames[%d]: %s\n", bes_size, ifnames[bes_size]);
+                ++bes_size;
+                token = strtok(NULL, ",");
+            }
+            ifnames[bes_size] = 0;
+            break;
+        }
+
+        case 'v':
+            verbose++;
+            break;
+
+        case 'C':
+            opt_offload |= OPT_TXCSUM | OPT_RXCSUM;
+            break;
+
+        case 'G':
+            opt_offload |= OPT_TXCSUM | OPT_RXCSUM | OPT_TSO | OPT_LRO;
+            break;
+
+        case 'O': {
+            char *s = optarg;
+            char *token;
+
+            for (;;) {
+                token = strtok(s, ",");
+                if (token == NULL) {
+                    break;
+                }
+                s = NULL;
+                if (!strcmp(token, "tso")) {
+                    opt_offload |= OPT_TSO;
+                } else if (!strcmp(token, "lro")) {
+                    opt_offload |= OPT_LRO;
+                } else if (!strcmp(token, "txcsum")) {
+                    opt_offload |= OPT_TXCSUM;
+                } else if (!strcmp(token, "rxcsum")) {
+                    opt_offload |= OPT_RXCSUM;
+                } else {
+                    fprintf(stderr, "Unknown offload '%s'\n", token);
+                    usage(argv[0]);
+                    return -1;
+                }
+            }
+            break;
+        }
+
+        case 'B':
+            SET_ALL_BES(busy_wait, 1);
+            break;
+
+        case 'b':
+            if (strcmp(optarg, "tap")
+                && strcmp(optarg, "sink")
+                && strcmp(optarg, "source")
+#ifdef WITH_NETMAP
+                && strcmp(optarg, "netmap")
+#endif
+            ) {
+                fprintf(stderr, "Unknown backend type '%s'\n", optarg);
+                usage(argv[0]);
+                return -1;
+            }
+            SET_ALL_BES(backend, optarg);
+            break;
+
+        case 'd':
+            if (strcmp(optarg, "sring")
+                    && strcmp(optarg, "sring_gso")
+                    && strcmp(optarg, "vring_packed")) {
+                fprintf(stderr, "Unknown device type '%s'\n", optarg);
+                usage(argv[0]);
+                return -1;
+            }
+            SET_ALL_BES(device, optarg);
+            break;
+
+        case 'S':
+            SET_ALL_BES(collect_stats, 1);
+            break;
+
+        case 'u': {
+            int time = atoi(optarg);
+            if (time < 0 || time > 1000) {
+                fprintf(stderr, "-u option value must be in [0, 1000]\n");
+                return -1;
+            }
+            SET_ALL_BES(sleep_usecs, time);
+            break;
+        }
+
+        default:
+            usage(argv[0]);
+            return -1;
+            break;
+        }
+    }
+
+    if(paths[0] == NULL) {
+        fprintf(stderr, "Missing UNIX socket path(s)\n");
+        usage(argv[0]);
+        return -1;
+    }
+
+    if(ifnames[0] == NULL) {
+        fprintf(stderr, "Missing interface name(s)\n");
+        usage(argv[0]);
+        return -1;
+    }
+
+    assert(sizeof(struct virtio_net_hdr_v1) == 12);
+
+    /*if (be.pidfile != NULL) {
+        FILE *f = fopen(be.pidfile, "w");
+
+        if (f == NULL) {
+            fprintf(stderr, "Failed to open pidfile: %s\n", strerror(errno));
+            return -1;
+        }
+
+        fprintf(f, "%d", (int)getpid());
+        fflush(f);
+        fclose(f);
+    }*/
+
+    /* Set some signal handler for graceful termination. */
+    sa.sa_handler = sigint_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    ret         = sigaction(SIGINT, &sa, NULL);
+    if (ret) {
+        perror("sigaction(SIGINT)");
+        return ret;
+    }
+    ret = sigaction(SIGTERM, &sa, NULL);
+    if (ret) {
+        perror("sigaction(SIGTERM)");
+        return ret;
+    }
+
+    /* Fix device type and offloads. */
+    if (!strcmp(bes[0].device, "sring") && (opt_offload)) {
+        SET_ALL_BES(device, "sring_gso");
+    }
+    if (!strcmp(bes[0].device, "vring_packed") && (opt_offload)) {
+        opt_offload = 0;
+    }
+
+    /* Select device type ops. */
+    if (!strcmp(bes[0].device, "sring")) {
+        ALL_BES.ops = sring_ops;
+    } else if (!strcmp(bes[0].device, "sring_gso")) {
+        ALL_BES.ops = sring_gso_ops;
+    } else if (!strcmp(bes[0].device, "vring_packed")) {
+        ALL_BES.ops = vring_packed_ops;
+    }
+    ALL_BES.features_avail = bes[0].ops.features_avail;
+    if (!(opt_offload & OPT_TXCSUM)) {
+        ALL_BES.features_avail &= ~(BPFHV_F_TX_CSUM);
+    }
+    if (!(opt_offload & OPT_RXCSUM)) {
+        ALL_BES.features_avail &= ~(BPFHV_F_RX_CSUM);
+    }
+    if (!(opt_offload & (OPT_TXCSUM | OPT_RXCSUM))) {
+        ALL_BES.features_avail &= ~(BPFHV_F_SG);
+    }
+    if (!(opt_offload & OPT_TSO)) {
+        ALL_BES.features_avail &= ~(BPFHV_F_TSOv4 | BPFHV_F_TSOv6 | BPFHV_F_UFO);
+    }
+    if (!(opt_offload & OPT_LRO)) {
+        ALL_BES.features_avail &= ~(BPFHV_F_TCPv4_LRO | BPFHV_F_TCPv6_LRO | BPFHV_F_UDP_LRO);
+    }
+
+    /* Select backend type. */
+    ALL_BES.vnet_hdr_len = (opt_offload) ? sizeof(struct virtio_net_hdr_v1) : 0;
+    ALL_BES.sync = NULL;
+    if (!strcmp(bes[0].backend, "tap")) {
+        /* Open TAP devices to use them as network backends. */
+        for(i = 0; i < bes_size; ++i) {
+            bes[i].befd = tap_alloc(ifnames[i], bes[i].vnet_hdr_len, opt_offload);
+            if (bes[i].befd < 0) {
+                fprintf(stderr, "Failed to allocate TAP device (interface name: %s)\n", ifnames[i]);
+                return -1;
+            }
+            bes[i].recv = tap_recv;
+            bes[i].send = tap_send;
+        }
+    } else if (!strcmp(bes[0].backend, "sink")) {
+        for(i = 0; i < bes_size; ++i) {
+            bes[i].recv = null_recv;
+            bes[i].send = sink_send;
+            bes[i].befd = eventfd(0, 0);
+            if (bes[i].befd < 0) {
+                fprintf(stderr, "Failed to allocate eventfd\n");
+                return -1;
+            }
+        }
+    } else if (!strcmp(bes[0].backend, "source")) {
+        for(i = 0; i < bes_size; ++i) {
+            bes[i].recv = source_recv;
+            bes[i].send = sink_send;
+            bes[i].befd = eventfd(1, 0);
+            if (bes[i].befd < 0) {
+                fprintf(stderr, "Failed to allocate eventfd\n");
+                return -1;
+            }
+        }
+    }
+/*#ifdef WITH_NETMAP
+    else if (!strcmp(be.backend, "netmap")) {
+        // Open a netmap port to use as network backend.
+        be.nm.port = nmport_open(ifname);
+        if (be.nm.port == NULL) {
+            fprintf(stderr, "nmport_open(%s) failed: %s\n", ifname,
+                    strerror(errno));
+            return -1;
+        }
+        assert(be.nm.port->register_done);
+        assert(be.nm.port->mmap_done);
+        assert(be.nm.port->fd >= 0);
+        assert(be.nm.port->nifp != NULL);
+        be.nm.txr = NETMAP_TXRING(be.nm.port->nifp, 0);
+        be.nm.rxr = NETMAP_RXRING(be.nm.port->nifp, 0);
+        be.befd = be.nm.port->fd;
+        be.recv = netmap_recv;
+        be.send = netmap_send;
+        if (be.busy_wait) {
+            be.sync = netmap_sync;
+        }
+
+        if (be.vnet_hdr_len > 0) {
+            struct nmreq_port_hdr req;
+            struct nmreq_header hdr;
+            int ret;
+
+            memcpy(&hdr, &be.nm.port->hdr, sizeof(hdr));
+            hdr.nr_reqtype = NETMAP_REQ_PORT_HDR_SET;
+            hdr.nr_body    = (uintptr_t)&req;
+            memset(&req, 0, sizeof(req));
+            req.nr_hdr_len = be.vnet_hdr_len;
+            ret = ioctl(be.befd, NIOCCTRL, &hdr);
+            if (ret != 0) {
+                fprintf(stderr, "ioctl(/dev/netmap, NIOCCTRL, PORT_HDR_SET)");
+                return ret;
+            }
+        }
+    }
+#endif*/
+
+    // Connect to all instance of QEMU
+    printf("Waiting for the connection of %d guests\n", bes_size);
+    for(i = 0; i < bes_size; ++i) {
+        int cfd = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (cfd < 0) {
+            fprintf(stderr, "socket(AF_UNIX) failed: %s\ni: %d\n", strerror(errno), i);
+            return -1;
+        }
+
+        server_addrs[i].sun_family = AF_UNIX;
+        strncpy(server_addrs[i].sun_path, paths[i], sizeof(server_addrs[i].sun_path) - 1);
+
+        if(connect(cfd, (const struct sockaddr *)&server_addrs[i], sizeof(server_addrs[i])) < 0) {
+            fprintf(stderr, "connect(%s) failed: %s\ni: %d\n", paths[i], strerror(errno), i);
+            return -1;
+        }
+
+        bes[i].cfd = cfd;
+
+        printf("Guest %d just connected!\n", i);
+
+        if(verbose) {
+            printf("device   : %s\n", bes[i].device);
+            printf("features : %"PRIx64"\n", bes[i].features_avail);
+            printf("backend  : %s\n", bes[i].backend);
+            printf("vnethdr  : %d\n", bes[i].vnet_hdr_len);
+        }
+    }
+
+    ret = main_loop();
+
+    for(i = 0; i < bes_size; ++i) {
+        close(bes[i].cfd);
+        close(bes[i].befd);
+/*#ifdef WITH_NETMAP
+        if (be.nm.port != NULL) {
+            nmport_close(be.nm.port);
+        }
+#endif*/
+        if(bes[i].pidfile != NULL) {
+            unlink(bes[i].pidfile);
+        }
+    }
+
+    return ret;
+}
+#endif
