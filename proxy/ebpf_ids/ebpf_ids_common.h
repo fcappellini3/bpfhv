@@ -11,7 +11,7 @@
 
 
 // Helper functions //
-static struct bpfhv_pkt* BPFHV_FUNC(get_bpfhv_pkt, struct bpfhv_rx_context *ctx);
+static struct bpfhv_pkt* BPFHV_FUNC(get_bpfhv_pkt, struct bpfhv_rx_context *ctx, const uint32_t flags);
 static int BPFHV_FUNC(print_num, const char* str, long long int x);
 static void* BPFHV_FUNC(get_shared_memory);
 static struct flow* BPFHV_FUNC(get_flow, struct flow_id* flow_id);

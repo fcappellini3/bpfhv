@@ -5,6 +5,9 @@
 #include "types.h"
 
 
+#define FLAG_BPFHV_PKT_NO_PARSE 0x1U
+
+
 /**
  * bpfhv_tx_context and bpfhv_rx_context has a reference to the current sk_buff, but the BPF
  * program can not use it since it can not know the current definition of struct sk_buff.
@@ -43,7 +46,8 @@ struct bpfhv_pkt {
 /**
  * Cast a struct bpfhv_pkt starting from an struct sk_buff
  */
-struct bpfhv_pkt* skb_to_bpfvh_pkt(struct bpfhv_pkt* bpfhv_pkt, const struct sk_buff* skb);
+struct bpfhv_pkt*
+skb_to_bpfvh_pkt(struct bpfhv_pkt* bpfhv_pkt, const struct sk_buff* skb, const uint32_t flags);
 
 #endif
 

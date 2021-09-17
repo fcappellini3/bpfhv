@@ -934,7 +934,7 @@ BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
  * Additional BPF helper functions (IDS support)
 */
 
-BPF_CALL_1(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx)
+BPF_CALL_2(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx, const uint32_t, flags)
 {
 	struct sk_buff *skb;
 
@@ -949,7 +949,7 @@ BPF_CALL_1(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx)
 		return 0;
 	}
 
-	return (uintptr_t)skb_to_bpfvh_pkt(bpfhv_pkt, skb);
+	return (uintptr_t)skb_to_bpfvh_pkt(bpfhv_pkt, skb, flags);
 }
 
 BPF_CALL_0(bpf_hv_get_shared_memory)

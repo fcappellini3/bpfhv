@@ -309,7 +309,7 @@ static __inline uint32_t
 ids_analyze_eth_pkt_by_context(struct bpfhv_rx_context* ctx) {
     uint32_t level;
 
-    struct bpfhv_pkt* pkt = get_bpfhv_pkt(ctx);
+    struct bpfhv_pkt* pkt = get_bpfhv_pkt(ctx, 0);
     if(!pkt)
         return IDS_PASS;
 

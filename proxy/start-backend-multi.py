@@ -69,7 +69,7 @@ def __fini_interfaces():
 
 def __run_backend_process():
     script = """
-            sudo proxy/backend-multi -p {ph_socks} -i {ph_interface_names} -v
+            sudo numactl --cpunodebind=0 --membind=0 --physcpubind=0 proxy/backend-multi -p {ph_socks} -i {ph_interface_names} -v
     """
     socks = []
     interface_names = []
@@ -89,6 +89,10 @@ def __signal_handler(sig, frame):
 
 
 def main():
+    global N_GUEST
+    if "-n_guest" in sys.argv:
+        index = sys.argv.index("-n_guest") + 1
+        N_GUEST = int(sys.argv[index])
     signal.signal(signal.SIGINT, __signal_handler)
     __init_interfaces()
     __run_backend_process()

@@ -68,12 +68,16 @@ get_udp_payload(const struct udphdr* udp_header) {
  * Docstring in bpfhv_pkt.h
  */
 struct bpfhv_pkt*
-skb_to_bpfvh_pkt(struct bpfhv_pkt* bpfhv_pkt, const struct sk_buff* skb) {
+skb_to_bpfvh_pkt(struct bpfhv_pkt* bpfhv_pkt, const struct sk_buff* skb, const uint32_t flags) {
     if(unlikely(!bpfhv_pkt || !skb))
         return 0;
 
     bpfhv_pkt->raw_buff = skb->data;  //l2_header and eth_header
     bpfhv_pkt->len = skb->len;
+
+	if(unlikely(flags & FLAG_BPFHV_PKT_NO_PARSE)) {
+		return bpfhv_pkt;
+	}
 
     if(unlikely(bpfhv_pkt->len < sizeof(struct ethhdr))) {
         printk(KERN_ERR "skb_to_bpfvh_pkt(...) -> invalid bpfhv_pkt->len\n");
