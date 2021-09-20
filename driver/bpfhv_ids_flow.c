@@ -33,7 +33,8 @@ struct h_node {
 /*
  * Global data
  */
-struct mutex flow_hash_table_mutex;
+static bool in_atomic_context = false;
+static struct mutex flow_hash_table_mutex;
 DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 
 
@@ -56,6 +57,17 @@ static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 #define flow_mutex_unlock(flow) do{} while(0) //mutex_unlock(&flow->reserved_kernel->flow_mutex)
 
 /**
+ * Lock hashtable's mutex
+ */
+#define hashtable_mutex_lock() /*do{} while(0)*/ mutex_lock(&flow_hash_table_mutex)
+
+/**
+ * Unlock hashtable's mutex
+ */
+#define hashtable_mutex_unlock() /*do{} while(0)*/ mutex_unlock(&flow_hash_table_mutex)
+
+
+/**
  * HELP/DEBUG functions
  */
 #if defined(DEBUG_LEVEL) && DEBUG_LEVEL > 0
@@ -76,6 +88,23 @@ flow_id_to_string(const struct flow_id* flow_id, char* buffer) {
 }
 #endif
 
+
+/**
+ * Allocate memory
+ */
+static inline void*
+__idsmalloc(const size_t size) {
+    gfp_t flags;
+
+    if(in_atomic_context) {
+        flags = GFP_KERNEL;
+    } else {
+        flags = GFP_ATOMIC;
+    }
+
+    return kmalloc(size, flags);
+}
+
 /**
  * Compute the hash (hashtable key) from a struct flow_id
  */
@@ -94,11 +123,11 @@ __flow_hash(const struct flow_id* flow_id) {
 static struct flow*
 __alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const uint32_t max_size,
              struct bpfhv_info* owner_bpfhv_info) {
-    struct flow* flow = kmalloc(sizeof(struct flow), GFP_KERNEL);
+    struct flow* flow = __idsmalloc(sizeof(struct flow));
     memset(flow, 0, sizeof(*flow));
     flow->owner_bpfhv_info = owner_bpfhv_info;
-    flow->reserved_bpf = kmalloc(FLOW_RESERVED_BPF_SIZE, GFP_KERNEL);
-    flow->reserved_kernel = kmalloc(sizeof(struct flow_kernel_reserved), GFP_KERNEL);
+    flow->reserved_bpf = __idsmalloc(FLOW_RESERVED_BPF_SIZE);
+    flow->reserved_kernel = __idsmalloc(sizeof(struct flow_kernel_reserved));
     flow->flow_id = *flow_id;
     flow->max_size = max_size;
     flow->recording_enabled = recording_enabled;
@@ -111,14 +140,14 @@ __alloc_flow(const struct flow_id* flow_id, const bool recording_enabled, const 
  */
 static struct flow_elem*
 __alloc_flow_elem(void* buff, const uint32_t len) {
-    struct flow_elem* flow_elem = kmalloc(sizeof(struct flow_elem), GFP_KERNEL);
+    struct flow_elem* flow_elem = __idsmalloc(sizeof(struct flow_elem));
     if(unlikely(!flow_elem)) {
         printk(KERN_ERR "__alloc_flow_elem(...) -> out of memory!");
         return NULL;
     }
     flow_elem->next = NULL;
     flow_elem->len = len;
-    flow_elem->buff = kmalloc(len, GFP_KERNEL);
+    flow_elem->buff = __idsmalloc(len);
     if(unlikely(!flow_elem->buff)) {
         printk(KERN_ERR "__alloc_flow_elem(...) -> out of memory!");
         kfree(flow_elem);
@@ -219,6 +248,7 @@ ids_flow_fini(void) {
     unsigned bkt;
     hash_for_each(flow_hash_table, bkt, cur, node) {
         __free_flow(cur->flow);
+        kfree(cur);
     }
 }
 
@@ -230,14 +260,14 @@ get_flow(const struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
 
-    mutex_lock(&flow_hash_table_mutex);
+    hashtable_mutex_lock();
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
-            mutex_unlock(&flow_hash_table_mutex);
+            hashtable_mutex_unlock();
             return cur->flow;
         }
     }
-    mutex_unlock(&flow_hash_table_mutex);
+    hashtable_mutex_unlock();
 
     return NULL;
 }
@@ -279,7 +309,7 @@ create_flow(
     }
 
     // Create the h_node and the flow
-    h_node = kmalloc(sizeof(struct h_node), GFP_KERNEL);
+    h_node = __idsmalloc(sizeof(struct h_node));
     flow = __alloc_flow(flow_id, recording_enabled, max_size, owner_bpfhv_info);
     if(unlikely(!flow || !h_node)) {
         printk(KERN_ERR "create_flow(...) -> out of memory!\n");
@@ -288,9 +318,9 @@ create_flow(
     h_node->flow = flow;
 
     // Add the flow to the hash table
-    mutex_lock(&flow_hash_table_mutex);
+    hashtable_mutex_lock();
     hash_add(flow_hash_table, &h_node->node, __flow_hash(flow_id));
-    mutex_unlock(&flow_hash_table_mutex);
+    hashtable_mutex_unlock();
 
     print_debug("create_flow(...) -> flow created\n");
 
@@ -306,7 +336,7 @@ delete_flow(struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
 
-    mutex_lock(&flow_hash_table_mutex);
+    hashtable_mutex_lock();
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
             print_debug(
@@ -319,11 +349,11 @@ delete_flow(struct flow_id* flow_id) {
             // Free the h_node
             kfree(cur);
             // Release the mutex and retrun true to signal the correct execution
-            mutex_unlock(&flow_hash_table_mutex);
+            hashtable_mutex_unlock();
             return true;
         }
     }
-    mutex_unlock(&flow_hash_table_mutex);
+    hashtable_mutex_unlock();
 
     print_debug("delete_flow(...) -> failed to delete a flow\n");
     return false;
@@ -387,12 +417,12 @@ get_flow_owner(const struct flow_id* flow_id) {
     struct flow* flow;
     struct bpfhv_info* bpfhv_info = NULL;
 
-    mutex_lock(&flow_hash_table_mutex);
+    hashtable_mutex_lock();
     flow = get_flow_no_mutex(flow_id);
     if(unlikely(flow)) {
         bpfhv_info = flow->owner_bpfhv_info;
     }
-    mutex_unlock(&flow_hash_table_mutex);
+    hashtable_mutex_unlock();
 
     return bpfhv_info;
 }
@@ -440,13 +470,13 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     // Find the flow that corresponds to this flow_id and check if the recording_enabled flag is
     // enabled. If there is no BPFHV_PROG_SOCKET_READ program, we can avoid further steps.
     local_irq_save(irq_flags);
-    mutex_lock(&flow_hash_table_mutex);
+    hashtable_mutex_lock();
     flow = get_flow_no_mutex(&flow_id);
     if(
         !flow || !flow->recording_enabled ||
         !bpfhv_prog_is_present(flow->owner_bpfhv_info, BPFHV_PROG_SOCKET_READ)
     ) {
-        mutex_unlock(&flow_hash_table_mutex);
+        hashtable_mutex_unlock();
         local_irq_restore(irq_flags);
         return err;
     }
@@ -455,7 +485,7 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     {
         struct srd_handler_arg srd_handler_arg = {
             .flow = flow,
-            .buffer_descriptor_array = kmalloc(msg->msg_iter.nr_segs * sizeof(struct buffer_descriptor), GFP_KERNEL),
+            .buffer_descriptor_array = __idsmalloc(msg->msg_iter.nr_segs * sizeof(struct buffer_descriptor)),
             .buffer_descriptor_array_size = msg->msg_iter.nr_segs
         };
         uint32_t i;
@@ -472,7 +502,7 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     }
 
     // Unlock mutex and restore local IRQ status
-    mutex_unlock(&flow_hash_table_mutex);
+    hashtable_mutex_unlock();
     local_irq_restore(irq_flags);
 
 	return err;
