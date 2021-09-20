@@ -20,9 +20,6 @@
 #include <sys/uio.h>
 #include <sys/time.h>
 #include <signal.h>
-#ifdef MULTI_BACKEND
-#include <sys/select.h>
-#endif
 #ifdef WITH_NETMAP
 #include <libnetmap.h>
 #endif
@@ -2660,46 +2657,47 @@ main(int argc, char** argv)
             }
         }
     }
-/*#ifdef WITH_NETMAP
-    else if (!strcmp(be.backend, "netmap")) {
-        // Open a netmap port to use as network backend.
-        be.nm.port = nmport_open(ifname);
-        if (be.nm.port == NULL) {
-            fprintf(stderr, "nmport_open(%s) failed: %s\n", ifname,
-                    strerror(errno));
-            return -1;
-        }
-        assert(be.nm.port->register_done);
-        assert(be.nm.port->mmap_done);
-        assert(be.nm.port->fd >= 0);
-        assert(be.nm.port->nifp != NULL);
-        be.nm.txr = NETMAP_TXRING(be.nm.port->nifp, 0);
-        be.nm.rxr = NETMAP_RXRING(be.nm.port->nifp, 0);
-        be.befd = be.nm.port->fd;
-        be.recv = netmap_recv;
-        be.send = netmap_send;
-        if (be.busy_wait) {
-            be.sync = netmap_sync;
-        }
+#ifdef WITH_NETMAP
+    else if (!strcmp(bes[0].backend, "netmap")) {
+        for(i = 0; i < bes_size; ++i) {
+            // Open a netmap port to use as network backend.
+            bes[i].nm.port = nmport_open(ifnames[i]);
+            if (bes[i].nm.port == NULL) {
+                fprintf(stderr, "nmport_open(%s) failed: %s\n", ifnames[i], strerror(errno));
+                return -1;
+            }
+            assert(bes[i].nm.port->register_done);
+            assert(bes[i].nm.port->mmap_done);
+            assert(bes[i].nm.port->fd >= 0);
+            assert(bes[i].nm.port->nifp != NULL);
+            bes[i].nm.txr = NETMAP_TXRING(bes[i].nm.port->nifp, 0);
+            bes[i].nm.rxr = NETMAP_RXRING(bes[i].nm.port->nifp, 0);
+            bes[i].befd = bes[i].nm.port->fd;
+            bes[i].recv = netmap_recv;
+            bes[i].send = netmap_send;
+            if (bes[i].busy_wait) {
+                bes[i].sync = netmap_sync;
+            }
 
-        if (be.vnet_hdr_len > 0) {
-            struct nmreq_port_hdr req;
-            struct nmreq_header hdr;
-            int ret;
+            if (bes[i].vnet_hdr_len > 0) {
+                struct nmreq_port_hdr req;
+                struct nmreq_header hdr;
+                int ret;
 
-            memcpy(&hdr, &be.nm.port->hdr, sizeof(hdr));
-            hdr.nr_reqtype = NETMAP_REQ_PORT_HDR_SET;
-            hdr.nr_body    = (uintptr_t)&req;
-            memset(&req, 0, sizeof(req));
-            req.nr_hdr_len = be.vnet_hdr_len;
-            ret = ioctl(be.befd, NIOCCTRL, &hdr);
-            if (ret != 0) {
-                fprintf(stderr, "ioctl(/dev/netmap, NIOCCTRL, PORT_HDR_SET)");
-                return ret;
+                memcpy(&hdr, &bes[i].nm.port->hdr, sizeof(hdr));
+                hdr.nr_reqtype = NETMAP_REQ_PORT_HDR_SET;
+                hdr.nr_body    = (uintptr_t)&req;
+                memset(&req, 0, sizeof(req));
+                req.nr_hdr_len = bes[i].vnet_hdr_len;
+                ret = ioctl(bes[i].befd, NIOCCTRL, &hdr);
+                if (ret != 0) {
+                    fprintf(stderr, "ioctl(/dev/netmap, NIOCCTRL, PORT_HDR_SET)");
+                    return ret;
+                }
             }
         }
     }
-#endif*/
+#endif
 
     // Connect to all instance of QEMU
     printf("Waiting for the connection of %d guests\n", bes_size);
@@ -2735,11 +2733,11 @@ main(int argc, char** argv)
     for(i = 0; i < bes_size; ++i) {
         close(bes[i].cfd);
         close(bes[i].befd);
-/*#ifdef WITH_NETMAP
-        if (be.nm.port != NULL) {
-            nmport_close(be.nm.port);
+#ifdef WITH_NETMAP
+        if (bes[i].nm.port != NULL) {
+            nmport_close(bes[i].nm.port);
         }
-#endif*/
+#endif
         if(bes[i].pidfile != NULL) {
             unlink(bes[i].pidfile);
         }
