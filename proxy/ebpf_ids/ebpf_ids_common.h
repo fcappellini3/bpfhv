@@ -19,6 +19,7 @@ static struct flow* BPFHV_FUNC(create_flow, const struct flow_id* flow_id, const
 static bool BPFHV_FUNC(delete_flow, struct flow_id* flow_id);
 static uint32_t BPFHV_FUNC(store_pkt, struct flow* flow, void* buff, const uint32_t len);
 static void BPFHV_FUNC(send_hypervisor_signal, struct bpfhv_info* bi, const uint32_t signal_id, const uint32_t value);
+static uint32_t BPFHV_FUNC(find, const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size);
 
 
 // Constants //
@@ -26,6 +27,7 @@ static void BPFHV_FUNC(send_hypervisor_signal, struct bpfhv_info* bi, const uint
 #define MAX_IDS_ALARM_PAYLOAD_SIZE 128
 #define MAX_IDS_CAP_PROT_PAYLOAD_SIZE 128
 #define IDS_CRITICAL_THRESHOLD 5
+#define NOT_FOUND 0xFFFFFFFFU
 
 
 // Macros //
@@ -220,14 +222,14 @@ mac_equal(const uint8_t* m1, const uint8_t* m2) {
 
 /**
  * Find "what" inside "where"
- * return: index of "what" inside "where" or 0xFFFFFFFFU if not found
+ * return: index of "what" inside "where" or NOT_FOUND if not found
  */
-static __inline uint32_t
+/*static __inline uint32_t
 find(const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size) {
     uint32_t i, j, stop;
     bool found;
     if(what_size > where_size)
-        return 0xFFFFFFFFU;
+        return NOT_FOUND;
     stop = where_size - what_size;
     for(i = 0; i < stop; ++i) {
         found = true;
@@ -241,8 +243,8 @@ find(const byte* where, const uint32_t where_size, const byte* what, const uint3
             return i;
         }
     }
-    return 0xFFFFFFFFU;
-}
+    return NOT_FOUND;
+}*/
 
 
 #endif

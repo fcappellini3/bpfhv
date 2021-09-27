@@ -154,7 +154,7 @@ check_flow(struct flow* flow) {
                  pkt->payload, pkt->payload_len,
                  alarm->payload, alarm->payload_size
              );
-             if(unlikely(find_res != 0xFFFFFFFFU)) {
+             if(unlikely(find_res != NOT_FOUND)) {
                  // The current pkt matched an alarm
                  char s[32]; s[0] = 'f'; s[1] = 'o'; s[2] = 'u'; s[3] = 'n'; s[4] = 'd'; s[5] = ' ';
                  s[6] = 'a'; s[7] = 't'; s[8] = 0;

@@ -4,7 +4,7 @@ import signal
 import sys
 
 
-N_GUEST = 2
+N_GUEST = 1
 BACKEND = "tap"
 
 WAIT_BELOCK_SCRIPT = """

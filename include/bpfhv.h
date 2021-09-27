@@ -143,7 +143,8 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_create_flow,            // added for IDS
 	BPFHV_FUNC_delete_flow,            // added for IDS
 	BPFHV_FUNC_store_pkt,              // added for IDS
-	BPFHV_FUNC_send_hypervisor_signal  // added for IDS
+	BPFHV_FUNC_send_hypervisor_signal, // added for IDS
+	BPFHV_FUNC_find                    // added for IDS
 };
 
 #ifndef BPFHV_FUNC

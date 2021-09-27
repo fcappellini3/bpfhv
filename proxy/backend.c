@@ -27,6 +27,10 @@
 
 #include "backend.h"
 
+#ifdef PROXY_IDS
+#include "proxy_ids/proxy_ids.h"
+#endif
+
 int verbose = 0;
 
 #define RXI_BEGIN(_s)   0
@@ -1390,6 +1394,10 @@ main(int argc, char **argv)
     int cfd;
     int ret;
 
+    #ifdef PROXY_IDS
+    proxy_ids_ini();
+    #endif
+
     check_alignments();
 
     be.backend = "tap";
@@ -1685,6 +1693,10 @@ main(int argc, char **argv)
     if (be.pidfile != NULL) {
         unlink(be.pidfile);
     }
+
+    #ifdef PROXY_IDS
+    proxy_ids_fini();
+    #endif
 
     return ret;
 }
@@ -2389,6 +2401,10 @@ main(int argc, char** argv)
     int opt;
     int ret;
 
+    #ifdef PROXY_IDS
+    proxy_ids_ini();
+    #endif
+
     check_alignments();
 
     // Default initialization
@@ -2742,6 +2758,10 @@ main(int argc, char** argv)
             unlink(bes[i].pidfile);
         }
     }
+
+    #ifdef PROXY_IDS
+    proxy_ids_fini();
+    #endif
 
     return ret;
 }

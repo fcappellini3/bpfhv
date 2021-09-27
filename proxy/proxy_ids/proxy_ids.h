@@ -33,6 +33,11 @@
 uint32_t ids_analyze_eth_pkt_by_buffer(void* buff, uint32_t len);
 
 /**
+ * Initialization routine
+ */
+void proxy_ids_ini(void);
+
+/**
  * Deallocate and free memory
  */
 void proxy_ids_fini(void);

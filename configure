@@ -12,6 +12,7 @@ configure options:
     --noproxy                   Don't build proxy code
     --netmap                    Build the proxy backend with netmap support
     --ids                       Build the BPFHV IDS (BPF injectable code)
+    --proxy_ids                 Build the proxy IDS (for tests only)
 EOF
 }
 

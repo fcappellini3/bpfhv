@@ -4,6 +4,7 @@
  */
 
 
+#define _GNU_SOURCE  // So stdio.h is correctly imported (ustats)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +12,11 @@
 #include "bpfhv_pkt.h"
 #include "net_headers.h"
 #include "log.h"
+
+
+#ifdef PROFILING
+#include "ustats.h"
+#endif
 
 
 #ifndef likely
@@ -31,6 +37,7 @@
 #define STORE_PKT_SUCCESS  0
 #define STORE_PKT_ERROR    1
 #define STORE_PKT_REJECTED 2
+#define NOT_FOUND 0xFFFFFFFFU
 
 /**
  * A flow is a collection of flow element (struct flow_elem).
@@ -144,6 +151,12 @@ struct ids_rules ids_rules = {
     }
 };
 
+// Data structures for profiling
+#ifdef PROFILING
+struct ustats* ustats_find;
+struct ustats* ustats_analysis;
+#endif
+
 // Flow hashmap
 #define h_key_t struct flow_id
 #define h_value_t struct flow*
@@ -158,7 +171,6 @@ hash(const h_key_t* flow_id) {
     ) % HASH_TABLE_SIZE;
 }
 static inline bool flow_id_equal(const struct flow_id* flow_id_a, const struct flow_id* flow_id_b);
-bool hashmap_is_initialized = false;
 static struct hashmap flow_hashmap = HASHMAP(HASH_TABLE_SIZE, hash, flow_id_equal);
 
 
@@ -557,14 +569,24 @@ iter_next(struct flow_iter* iter) {
 
 /**
 * Find "what" inside "where"
-* return: index of "what" inside "where" or 0xFFFFFFFFU if not found
+* return: index of "what" inside "where" or NOT_FOUND if not found
 */
 static inline uint32_t
 find(const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size) {
     uint32_t i, j, stop;
     bool found;
+
+    #ifdef PROFILING
+    uint64_t dt;
+    #endif
+
     if(what_size > where_size)
-        return 0xFFFFFFFFU;
+        return NOT_FOUND;
+
+    #ifdef PROFILING
+    dt = ustats_now();
+    #endif
+
     stop = where_size - what_size;
     for(i = 0; i < stop; ++i) {
         found = true;
@@ -575,10 +597,19 @@ find(const byte* where, const uint32_t where_size, const byte* what, const uint3
             }
         }
         if(found) {
+            #ifdef PROFILING
+            dt = ustats_now() - dt;
+            ustats_record(ustats_find, dt);
+            #endif
             return i;
         }
     }
-    return 0xFFFFFFFFU;
+
+    #ifdef PROFILING
+    dt = ustats_now() - dt;
+    ustats_record(ustats_find, dt);
+    #endif
+    return NOT_FOUND;
 }
 
  /**
@@ -662,7 +693,7 @@ __ids_deep_scan(struct bpfhv_pkt* pkt) {
                 pkt->payload, pkt->payload_len,
                 alarm->payload, alarm->payload_size
             );
-            if(find_res != 0xFFFFFFFFU) {
+            if(find_res != NOT_FOUND) {
                 // The current pkt matched an alarm
                 // If alarm->action is DROP, the packet must be immediatel dropped!
                 if(alarm->action == DROP) {
@@ -844,15 +875,17 @@ ids_analyze_eth_pkt_by_buffer(void* buff, uint32_t len) {
     uint32_t level;
     struct bpfhv_pkt* bpfhv_pkt;
 
-    // Initialize flow_hashmap if needed
-    if(unlikely(!hashmap_is_initialized)) {
-        hashmap_ini(&flow_hashmap);
-        hashmap_is_initialized = true;
-    }
+    #ifdef PROFILING
+    uint64_t dt = ustats_now();
+    #endif
 
     // Craft a bpfhv_pkt and start analyzis
     bpfhv_pkt = craft_bpfhv_pkt(buff, len);
     if(!bpfhv_pkt) {
+        #ifdef PROFILING
+        dt = ustats_now() - dt;
+        ustats_record(ustats_analysis, dt);
+        #endif
         return IDS_PASS;
     }
     level = ids_analyze_eth_pkt(bpfhv_pkt);
@@ -862,6 +895,10 @@ ids_analyze_eth_pkt_by_buffer(void* buff, uint32_t len) {
         print_error("level: %d\n", level);
     }
 
+    #ifdef PROFILING
+    dt = ustats_now() - dt;
+    ustats_record(ustats_analysis, dt);
+    #endif
     return level;
 }
 
@@ -872,7 +909,33 @@ ids_analyze_eth_pkt_by_buffer(void* buff, uint32_t len) {
  */
 
 
+/**
+ * Docstring in proxy_ids.h
+ */
 void
 proxy_ids_fini(void) {
     hashmap_fini(&flow_hashmap);
 }
+
+/**
+ * Docstring in proxy_ids.h
+ */
+void
+proxy_ids_ini(void) {
+    hashmap_ini(&flow_hashmap);
+    print_always("PROXY IDS initialized\n");
+    #ifdef PROFILING
+    print_always(
+        "PROXY IDS -> PROFILING flag is enabled: this could slightly affect performances\n"
+    );
+    struct ustats_cfg cfg = { .frac_bits = 5, .bits = 64 };
+    ustats_find = ustats_new("find", cfg);
+    ustats_analysis = ustats_new("analisys", cfg);
+    #endif
+}
+
+
+
+#ifdef PROFILING
+#include "ustats.c"
+#endif

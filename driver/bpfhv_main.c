@@ -35,6 +35,13 @@
 #include "bpfhv_kprobes.h"
 #include "bpfhv_pkt.h"
 
+
+#ifdef PROFILING
+#include "kstats.h"
+#include <linux/timekeeping.h>
+#endif
+
+
 #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV|NETIF_MSG_PROBE|NETIF_MSG_LINK)
 static int debug = -1; /* use DEFAULT_MSG_ENABLE by default */
 module_param(debug, int, /* perm = allow override on modprobe */0);
@@ -52,6 +59,13 @@ MODULE_PARM_DESC(gso, "Enable generic segmentation offload");
 static bool tx_napi = false;
 module_param(tx_napi, bool, /* perm = allow override on modprobe */0);
 MODULE_PARM_DESC(tx_napi, "Use NAPI for TX completion");
+
+#ifdef PROFILING
+static struct kstats* kstats;
+static struct kstats* kstats_pkt_parse;
+static struct kstats* kstats_get_flow;
+static struct kstats* kstats_find;
+#endif
 
 struct bpfhv_rxq;
 struct bpfhv_txq;
@@ -937,6 +951,11 @@ BPF_CALL_2(bpf_hv_print_num, const char *, str, long long int, x)
 BPF_CALL_2(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx, const uint32_t, flags)
 {
 	struct sk_buff *skb;
+	uintptr_t ret;
+
+	#ifdef PROFILING
+	u64 dt = ktime_get_ns();
+	#endif
 
 	if(unlikely(ctx == NULL)) {
 		printk(KERN_ERR "bpf_hv_get_bpfhv_pkt(...) -> ctx is null\n");
@@ -949,7 +968,14 @@ BPF_CALL_2(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx, const uint32_t,
 		return 0;
 	}
 
-	return (uintptr_t)skb_to_bpfvh_pkt(bpfhv_pkt, skb, flags);
+	ret = (uintptr_t)skb_to_bpfvh_pkt(bpfhv_pkt, skb, flags);
+
+	#ifdef PROFILING
+	dt = ktime_get_ns() - dt;
+	kstats_record(kstats_pkt_parse, dt);
+	#endif
+
+	return ret;
 }
 
 BPF_CALL_0(bpf_hv_get_shared_memory)
@@ -959,7 +985,20 @@ BPF_CALL_0(bpf_hv_get_shared_memory)
 
 BPF_CALL_1(bpf_hv_get_flow, struct flow_id*, flow_id)
 {
-	return (uintptr_t)get_flow(flow_id);
+	uintptr_t ret;
+
+	#ifdef PROFILING
+	u64 dt = ktime_get_ns();
+	#endif
+
+	ret = (uintptr_t)get_flow(flow_id);
+
+	#ifdef PROFILING
+	dt = ktime_get_ns() - dt;
+	kstats_record(kstats_get_flow, dt);
+	#endif
+
+	return ret;
 }
 
 BPF_CALL_4(bpf_hv_create_flow, const struct flow_id*, flow_id, const bool, recording_enabled,
@@ -978,6 +1017,50 @@ BPF_CALL_1(bpf_hv_delete_flow, struct flow_id*, flow_id)
 BPF_CALL_3(bpf_hv_store_pkt, struct flow*, flow, void*, buff, const uint32_t, len)
 {
 	return (uintptr_t)store_pkt(flow, buff, len);
+}
+
+/**
+ * Find "what" inside "where"
+ * return: index of "what" inside "where" or NOT_FOUND if not found
+ */
+#define NOT_FOUND 0xFFFFFFFFU
+BPF_CALL_4(
+	bpf_hv_find, const byte*, where, const uint32_t, where_size, const byte*, what,
+	const uint32_t, what_size
+) {
+	uint32_t i, j, stop;
+    bool found;
+
+	#ifdef PROFILING
+	u64 dt = ktime_get_ns();
+	#endif
+
+    if(what_size > where_size)
+        return NOT_FOUND;
+
+    stop = where_size - what_size;
+    for(i = 0; i < stop; ++i) {
+        found = true;
+        for(j = 0; j < what_size; ++j) {
+            if(where[i+j] != what[j]) {
+                found = false;
+                break;
+            }
+        }
+        if(found) {
+			#ifdef PROFILING
+			dt = ktime_get_ns() - dt;
+			kstats_record(kstats_find, dt);
+			#endif
+            return i;
+        }
+    }
+
+	#ifdef PROFILING
+	dt = ktime_get_ns() - dt;
+	kstats_record(kstats_find, dt);
+	#endif
+    return NOT_FOUND;
 }
 
 /**
@@ -1313,6 +1396,9 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 			break;
 		case BPFHV_FUNC_send_hypervisor_signal:
 			func = bpf_hv_send_hypervisor_signal;
+			break;
+		case BPFHV_FUNC_find:
+			func = bpf_hv_find;
 			break;
 		default:
 			netif_err(bi, drv, bi->netdev,
@@ -2040,7 +2126,17 @@ bpfhv_rx_clean(struct bpfhv_rxq *rxq, int budget)
 		}
 
 		if (bi->progs[BPFHV_PROG_RX_POSTPROC]) {
+			#ifdef PROFILING
+			u64 dt = ktime_get_ns();
+			#endif
+
 			ret = BPF_PROG_RUN(bi->progs[BPFHV_PROG_RX_POSTPROC], /*ctx=*/ctx);
+
+			#ifdef PROFILING
+			dt = ktime_get_ns() - dt;
+			kstats_record(kstats, dt);
+			#endif
+
 			if (unlikely(
 				ret != BPFHV_PROG_RX_POSTPROC_OK &&
 				ret != BPFHV_PROG_RX_POSTPROC_PKT_DROP
@@ -2197,6 +2293,18 @@ static struct pci_driver bpfhv_driver = {
 static int __init
 bpfhv_init(void)
 {
+	#ifdef PROFILING
+	printk(KERN_ERR "PROFILING flag was enabled during compilation: this could slightly impact performances\n");
+	ks_init();
+	kstats = kstats_new("rxh", 5);
+	kstats_pkt_parse = kstats_new("pkt_pase", 5);
+	kstats_get_flow = kstats_new("get_flow", 5);
+	kstats_find = kstats_new("find", 5);
+	if(!kstats || !kstats_pkt_parse || !kstats_get_flow || !kstats_find) {
+		printk(KERN_ERR "kstats_new(...) returned null\n");
+	}
+	#endif
+
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
 	ebpf_mem_ini();
 	ids_flow_ini();
@@ -2213,6 +2321,14 @@ bpfhv_fini(void)
 		kfree(bpfhv_pkt);
 	ebpf_mem_fini();
 	ids_flow_fini();
+
+	#ifdef PROFILING
+	kstats_delete(kstats);
+	kstats_delete(kstats_pkt_parse);
+	kstats_delete(kstats_get_flow);
+	kstats_delete(kstats_find);
+	ks_exit();
+	#endif
 }
 
 module_init(bpfhv_init);

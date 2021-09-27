@@ -34,7 +34,8 @@ struct h_node {
  * Global data
  */
 static bool in_atomic_context = false;
-static struct mutex flow_hash_table_mutex;
+//static struct mutex flow_hash_table_mutex;
+static spinlock_t flow_hash_table_mutex;
 DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
 
 
@@ -45,6 +46,11 @@ bool bpfhv_prog_is_present(struct bpfhv_info* bi, const uint32_t index);
 uint32_t run_bpfhv_prog_1(struct bpfhv_info* bi, const uint32_t index, void* arg);
 static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 
+
+/**
+ * Initialize hashtable's mutex
+ */
+#define hashtable_mutex_init() spin_lock_init(&flow_hash_table_mutex)
 
 /**
  * Lock a flow's mutex
@@ -59,12 +65,12 @@ static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 /**
  * Lock hashtable's mutex
  */
-#define hashtable_mutex_lock() /*do{} while(0)*/ mutex_lock(&flow_hash_table_mutex)
+#define hashtable_mutex_lock() /*do{} while(0)*/ spin_lock(&flow_hash_table_mutex)
 
 /**
  * Unlock hashtable's mutex
  */
-#define hashtable_mutex_unlock() /*do{} while(0)*/ mutex_unlock(&flow_hash_table_mutex)
+#define hashtable_mutex_unlock() /*do{} while(0)*/ spin_unlock(&flow_hash_table_mutex)
 
 
 /**
@@ -234,7 +240,7 @@ __pop_head_flow(struct flow* flow) {
  */
 void
 ids_flow_ini(void) {
-    mutex_init(&flow_hash_table_mutex);
+    hashtable_mutex_init();
     hash_init(flow_hash_table);
 }
 
