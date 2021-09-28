@@ -20,6 +20,7 @@ static bool BPFHV_FUNC(delete_flow, struct flow_id* flow_id);
 static uint32_t BPFHV_FUNC(store_pkt, struct flow* flow, void* buff, const uint32_t len);
 static void BPFHV_FUNC(send_hypervisor_signal, struct bpfhv_info* bi, const uint32_t signal_id, const uint32_t value);
 static uint32_t BPFHV_FUNC(find, const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size);
+static uint32_t BPFHV_FUNC(find_multi, const struct buffer_descriptor* where, const struct buffer_descriptor* whats, const uint32_t whats_size);
 
 
 // Constants //

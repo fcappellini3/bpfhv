@@ -1064,6 +1064,56 @@ BPF_CALL_4(
 }
 
 /**
+ * Help function for bpf_hv_find_multi
+ */
+static inline bool
+equal_byte_array(const byte* a, const byte* b, const uint32_t len) {
+    const byte* stop = a + len;
+
+    for(; a < stop; ++a, ++b) {
+        if(*a != *b) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Find "what" (the first matching of "whats") inside "where"
+ * return: a uint64_t whose hight 32 bits are the index of "what" inside "whats" and whose lower 32
+ *         bits are the index of "what" in "where"
+ */
+BPF_CALL_3(
+	bpf_hv_find_multi, const struct buffer_descriptor*, where,
+	const struct buffer_descriptor*, whats, const uint32_t, whats_size
+) {
+    byte* ptr;
+    byte* ptr_stop;
+    uint32_t what_index, i;
+
+    ptr = (byte*)where->buff;
+    ptr_stop = ptr + where->len;
+
+    for(i = 0; i < where->len; ++i) {
+        for(what_index = 0; what_index < whats_size; ++what_index) {
+            if(whats[what_index].len > where->len - i) {
+                continue;
+            }
+            if(equal_byte_array(
+                (byte*)(where->buff) + i,
+                (byte*)whats[what_index].buff,
+                whats[what_index].len
+            )) {
+                return ((uint64_t)what_index) << 32 | ((uint64_t)i);
+            }
+        }
+    }
+
+    return NOT_FOUND;
+}
+
+/**
  * Send a signal to the hypervisor (write value to the signal register)
  * signal_id: signal identificator
  * value: signal value
@@ -1399,6 +1449,9 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
 			break;
 		case BPFHV_FUNC_find:
 			func = bpf_hv_find;
+			break;
+		case BPFHV_FUNC_find_multi:
+			func = bpf_hv_find_multi;
 			break;
 		default:
 			netif_err(bi, drv, bi->netdev,
