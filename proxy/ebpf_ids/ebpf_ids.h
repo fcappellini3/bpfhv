@@ -40,16 +40,6 @@ struct global global_ = {
 
 
 /**
- * Debug only: print an error code
- */
-static __inline void
-print_debug(const uint32_t code) {
-    char str[32];
-    str[0]='D'; str[1]='e'; str[2]='b'; str[3]='u'; str[4]='g'; str[5]=' '; str[6]='c'; str[7]='o'; str[8]='d'; str[9]='e'; str[10]=0;
-    print_num(str, code);
-}
-
-/**
  * Check a flow w.r.t. a struct ids_capture_protocol.
  * return: true if flow match the condition of cap_prot, false otherwise.
  */

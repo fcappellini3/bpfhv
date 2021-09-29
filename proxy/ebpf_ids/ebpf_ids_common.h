@@ -222,15 +222,18 @@ mac_equal(const uint8_t* m1, const uint8_t* m2) {
 }
 
 /**
- * Find "what" inside "where"
+ * Find "what" inside "where". This is the "BPF" version of the helper function "find".
+ * It performs much worse, so use it only for testing pourposes.
  * return: index of "what" inside "where" or NOT_FOUND if not found
  */
-/*static __inline uint32_t
-find(const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size) {
+static __inline uint32_t
+bpf_find(const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size) {
     uint32_t i, j, stop;
     bool found;
+
     if(what_size > where_size)
         return NOT_FOUND;
+
     stop = where_size - what_size;
     for(i = 0; i < stop; ++i) {
         found = true;
@@ -244,8 +247,18 @@ find(const byte* where, const uint32_t where_size, const byte* what, const uint3
             return i;
         }
     }
+    
     return NOT_FOUND;
-}*/
+}
 
+/**
+ * Debug only: print an error code
+ */
+static __inline void
+print_debug(const uint32_t code) {
+    char str[32];
+    str[0]='D'; str[1]='e'; str[2]='b'; str[3]='u'; str[4]='g'; str[5]=' '; str[6]='c'; str[7]='o'; str[8]='d'; str[9]='e'; str[10]=0;
+    print_num(str, code);
+}
 
 #endif
