@@ -28,7 +28,6 @@ static uint32_t BPFHV_FUNC(find_multi, const struct buffer_descriptor* where, co
 #define MAX_IDS_ALARM_PAYLOAD_SIZE 128
 #define MAX_IDS_CAP_PROT_PAYLOAD_SIZE 128
 #define IDS_CRITICAL_THRESHOLD 5
-#define NOT_FOUND 0xFFFFFFFFU
 
 
 // Macros //
@@ -219,36 +218,6 @@ invalid_arp_pkt(struct bpfhv_pkt* pkt) {
 static __inline bool
 mac_equal(const uint8_t* m1, const uint8_t* m2) {
     return *((uint32_t*)m1) == *((uint32_t*)m2) && *((uint32_t*)(m1+4)) == *((uint32_t*)(m2+4));
-}
-
-/**
- * Find "what" inside "where". This is the "BPF" version of the helper function "find".
- * It performs much worse, so use it only for testing pourposes.
- * return: index of "what" inside "where" or NOT_FOUND if not found
- */
-static __inline uint32_t
-bpf_find(const byte* where, const uint32_t where_size, const byte* what, const uint32_t what_size) {
-    uint32_t i, j, stop;
-    bool found;
-
-    if(what_size > where_size)
-        return NOT_FOUND;
-
-    stop = where_size - what_size;
-    for(i = 0; i < stop; ++i) {
-        found = true;
-        for(j = 0; j < what_size; ++j) {
-            if(where[i+j] != what[j]) {
-                found = false;
-                break;
-            }
-        }
-        if(found) {
-            return i;
-        }
-    }
-    
-    return NOT_FOUND;
 }
 
 /**

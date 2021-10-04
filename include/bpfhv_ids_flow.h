@@ -217,7 +217,18 @@ iter_init(struct flow_iter* iter, struct flow* flow) {
 }
 
 /**
- * Get the pointer to the next byte of the iterator
+ * Get the byte pointer to the current position of the iterator
+ */
+static __inline byte*
+iter_current(struct flow_iter* iter) {
+    if(!iter->current_flow_elem)
+        return NULL;
+
+    return (byte*)iter->current_flow_elem->buff + iter->index;
+}
+
+/**
+ * Move the interator to the next byte and get the pointer to that byte
  * return: the next byte or NULL if no more bytes are available
  */
 static __inline byte*

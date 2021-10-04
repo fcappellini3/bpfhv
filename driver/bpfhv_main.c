@@ -34,6 +34,7 @@
 #include "bpfhv_ids_flow.h"
 #include "bpfhv_kprobes.h"
 #include "bpfhv_pkt.h"
+#include "log.h"
 
 
 #ifdef PROFILING
@@ -1111,6 +1112,46 @@ BPF_CALL_3(
     }
 
     return NOT_FOUND;
+
+	#if 0
+	uint32_t indices[128];
+	uint32_t what_index;
+	uint32_t displ;
+	const struct buffer_descriptor* what;
+	uint32_t i;
+	byte b;
+
+	for(what_index = 0; what_index < whats_size; ++what_index) {
+		indices[i] = 0;
+	}
+
+	for(i = 0; i < where->len; ++i) {
+
+		b = *((byte*)(where->buff) + i);
+
+		for(what_index = 0; what_index < whats_size; ++what_index) {
+			what = &whats[what_index];
+			displ = indices[what_index];
+
+			if(what->len - displ > where->len - i) {
+				continue;
+			}
+
+			if(unlikely(
+				((byte*)what->buff)[displ] == b
+			)) {
+				++indices[what_index];
+				if(indices[what_index] == what->len) {
+					return (((uint64_t)what_index) << 32) | (i - indices[what_index]);
+				}
+			} else {
+				indices[what_index] = 0;
+			}
+		}
+	}
+
+	return NOT_FOUND;
+	#endif
 }
 
 /**
@@ -1122,6 +1163,7 @@ BPF_CALL_3(
 	bpf_hv_send_hypervisor_signal,
 	struct bpfhv_info*, bi, const uint32_t, signal_id, const uint32_t, value
 ) {
+	print_debug("Sending signal %d (value: %d) to hypervisor\n", signal_id, value);
 	writel(
 		value,
 		bi->regaddr + BPFHV_REG_HYPERVISOR_SIGNAL_0 + (4 * signal_id)
