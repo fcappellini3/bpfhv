@@ -1036,19 +1036,19 @@ BPF_CALL_4(
 	u64 dt = ktime_get_ns();
 	#endif
 
-    if(what_size > where_size)
+    if(unlikely(what_size > where_size))
         return NOT_FOUND;
 
     stop = where_size - what_size;
-    for(i = 0; i < stop; ++i) {
+    for(i = 0; likely(i < stop); ++i) {
         found = true;
         for(j = 0; j < what_size; ++j) {
-            if(where[i+j] != what[j]) {
+            if(likely(where[i+j] != what[j])) {
                 found = false;
                 break;
             }
         }
-        if(found) {
+        if(unlikely(found)) {
 			#ifdef PROFILING
 			dt = ktime_get_ns() - dt;
 			kstats_record(kstats_find, dt);

@@ -580,7 +580,7 @@ find(const byte* where, const uint32_t where_size, const byte* what, const uint3
     uint64_t dt;
     #endif
 
-    if(what_size > where_size)
+    if(unlikely(what_size > where_size))
         return NOT_FOUND;
 
     #ifdef PROFILING
@@ -588,15 +588,15 @@ find(const byte* where, const uint32_t where_size, const byte* what, const uint3
     #endif
 
     stop = where_size - what_size;
-    for(i = 0; i < stop; ++i) {
+    for(i = 0; likely(i < stop); ++i) {
         found = true;
         for(j = 0; j < what_size; ++j) {
-            if(where[i+j] != what[j]) {
+            if(likely(where[i+j] != what[j])) {
                 found = false;
                 break;
             }
         }
-        if(found) {
+        if(unlikely(found)) {
             #ifdef PROFILING
             dt = ustats_now() - dt;
             ustats_record(ustats_find, dt);
