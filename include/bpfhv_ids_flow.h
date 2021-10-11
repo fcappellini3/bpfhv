@@ -247,5 +247,35 @@ iter_next(struct flow_iter* iter) {
     return (byte*)iter->current_flow_elem->buff + iter->index;
 }
 
+/**
+ * How many sequential byte are still remaining in the current sequential group?
+ * (counting the current byte)
+ */
+static __inline uint32_t
+iter_current_sequential_group_size(struct flow_iter* iter) {
+    if(_unlikely(!iter->current_flow_elem))
+        return 0;
+
+    return iter->current_flow_elem->len - iter->index;
+}
+
+/**
+ * Skip the current group of sequential bytes. You may want to use this function if you already
+ * used these bytes thanks to iter_current_sequential_group_size(...).
+ */
+static __inline byte*
+iter_skip_sequential_group(struct flow_iter* iter) {
+    if(_unlikely(!iter->current_flow_elem))
+        return 0;
+
+    if((_unlikely(!iter->current_flow_elem->next))
+        return NULL;
+
+    iter->current_flow_elem = iter->current_flow_elem->next;
+    iter->index = 0;
+
+    return iter->current_flow_elem->buff;
+}
+
 
 #endif
