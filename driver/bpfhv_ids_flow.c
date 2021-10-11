@@ -33,7 +33,7 @@ struct h_node {
 /*
  * Global data
  */
-static bool in_atomic_context = false;
+static bool in_atomic_context = true;
 //static struct mutex flow_hash_table_mutex;
 static spinlock_t flow_hash_table_mutex;
 DECLARE_HASHTABLE(flow_hash_table, HASH_TABLE_BIT_COUNT);
@@ -65,12 +65,12 @@ static inline flow_key_t __flow_hash(const struct flow_id* flow_id);
 /**
  * Lock hashtable's mutex
  */
-#define hashtable_mutex_lock() /*do{} while(0)*/ spin_lock(&flow_hash_table_mutex)
+#define hashtable_mutex_lock(irq_flags) spin_lock_irqsave(&flow_hash_table_mutex, irq_flags)
 
 /**
  * Unlock hashtable's mutex
  */
-#define hashtable_mutex_unlock() /*do{} while(0)*/ spin_unlock(&flow_hash_table_mutex)
+#define hashtable_mutex_unlock(irq_flags) spin_unlock_irqrestore(&flow_hash_table_mutex, irq_flags)
 
 
 /**
@@ -102,10 +102,10 @@ static inline void*
 __idsmalloc(const size_t size) {
     gfp_t flags;
 
-    if(in_atomic_context) {
-        flags = GFP_KERNEL;
-    } else {
+    if(likely(in_atomic_context)) {
         flags = GFP_ATOMIC;
+    } else {
+        flags = GFP_KERNEL;
     }
 
     return kmalloc(size, flags);
@@ -265,21 +265,22 @@ struct flow*
 get_flow(const struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
+    unsigned long irq_flags;
 
-    hashtable_mutex_lock();
+    hashtable_mutex_lock(irq_flags);
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
-            hashtable_mutex_unlock();
+            hashtable_mutex_unlock(irq_flags);
             return cur->flow;
         }
     }
-    hashtable_mutex_unlock();
+    hashtable_mutex_unlock(irq_flags);
 
     return NULL;
 }
 
 /**
- * Like get_flow(...), but it does not lock/unlock the flow mutex.
+ * Like get_flow(...), but it does not lock/unlock the mutex.
  * It assumes that the mutex was already locked.
  */
  static struct flow*
@@ -306,6 +307,7 @@ create_flow(
 ) {
     struct h_node* h_node;
     struct flow* flow;
+    unsigned long irq_flags;
 
     // Check if the flow already exists. If yes, raise a warning and return that flow.
     flow = get_flow(flow_id);
@@ -324,9 +326,9 @@ create_flow(
     h_node->flow = flow;
 
     // Add the flow to the hash table
-    hashtable_mutex_lock();
+    hashtable_mutex_lock(irq_flags);
     hash_add(flow_hash_table, &h_node->node, __flow_hash(flow_id));
-    hashtable_mutex_unlock();
+    hashtable_mutex_unlock(irq_flags);
 
     print_debug("create_flow(...) -> flow created\n");
 
@@ -341,8 +343,9 @@ bool
 delete_flow(struct flow_id* flow_id) {
     struct h_node* cur;
     flow_key_t flow_key = __flow_hash(flow_id);
+    unsigned long irq_flags;
 
-    hashtable_mutex_lock();
+    hashtable_mutex_lock(irq_flags);
     hash_for_each_possible(flow_hash_table, cur, node, flow_key) {
         if(flow_id_equal(&cur->flow->flow_id, flow_id)) {
             print_debug(
@@ -355,11 +358,11 @@ delete_flow(struct flow_id* flow_id) {
             // Free the h_node
             kfree(cur);
             // Release the mutex and retrun true to signal the correct execution
-            hashtable_mutex_unlock();
+            hashtable_mutex_unlock(irq_flags);
             return true;
         }
     }
-    hashtable_mutex_unlock();
+    hashtable_mutex_unlock(irq_flags);
 
     print_debug("delete_flow(...) -> failed to delete a flow\n");
     return false;
@@ -422,13 +425,14 @@ struct bpfhv_info*
 get_flow_owner(const struct flow_id* flow_id) {
     struct flow* flow;
     struct bpfhv_info* bpfhv_info = NULL;
+    unsigned long irq_flags;
 
-    hashtable_mutex_lock();
+    hashtable_mutex_lock(irq_flags);
     flow = get_flow_no_mutex(flow_id);
     if(unlikely(flow)) {
         bpfhv_info = flow->owner_bpfhv_info;
     }
-    hashtable_mutex_unlock();
+    hashtable_mutex_unlock(irq_flags);
 
     return bpfhv_info;
 }
@@ -475,15 +479,13 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
 
     // Find the flow that corresponds to this flow_id and check if the recording_enabled flag is
     // enabled. If there is no BPFHV_PROG_SOCKET_READ program, we can avoid further steps.
-    local_irq_save(irq_flags);
-    hashtable_mutex_lock();
+    hashtable_mutex_lock(irq_flags);
     flow = get_flow_no_mutex(&flow_id);
     if(
         !flow || !flow->recording_enabled ||
         !bpfhv_prog_is_present(flow->owner_bpfhv_info, BPFHV_PROG_SOCKET_READ)
     ) {
-        hashtable_mutex_unlock();
-        local_irq_restore(irq_flags);
+        hashtable_mutex_unlock(irq_flags);
         return err;
     }
 
@@ -508,8 +510,7 @@ inet_recvmsg_replacement(struct socket *sock, struct msghdr *msg, size_t size, i
     }
 
     // Unlock mutex and restore local IRQ status
-    hashtable_mutex_unlock();
-    local_irq_restore(irq_flags);
+    hashtable_mutex_unlock(irq_flags);
 
 	return err;
 }
