@@ -1,9 +1,10 @@
 /**
- * Example of __ids_deep_scan(...) that uses an hash function to check match rules
+ * Example of pdt memory and __ids_deep_scan(...) that uses an hash function to check match rules
  */
 
 
 #define ALARM_COUNT 6
+#define ACTIIVE_ALARM_COUNT 1
 
 #define PAYLOAD_0 { \
         0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x02, \
@@ -76,7 +77,7 @@ struct global {
 
  __section("pdt")
  struct global global_ = {
-     .alarm_count = ALARM_COUNT,
+     .alarm_count = ACTIIVE_ALARM_COUNT,
      .alarms = {
          {
              .cap_prot_index = 0,
@@ -86,31 +87,31 @@ struct global {
          },
          {
              .cap_prot_index = 0,
-             .payload_size = 5,
+             .payload_size = 64,
              .payload = PAYLOAD_1,
              .action = CAPTURE
          },
          {
              .cap_prot_index = 0,
-             .payload_size = 5,
+             .payload_size = 64,
              .payload = PAYLOAD_2,
              .action = CAPTURE
          },
          {
              .cap_prot_index = 0,
-             .payload_size = 5,
+             .payload_size = 64,
              .payload = PAYLOAD_3,
              .action = CAPTURE
          },
          {
              .cap_prot_index = 0,
-             .payload_size = 5,
+             .payload_size = 64,
              .payload = PAYLOAD_4,
              .action = CAPTURE
          },
          {
              .cap_prot_index = 0,
-             .payload_size = 5,
+             .payload_size = 64,
              .payload = PAYLOAD_5,
              .action = CAPTURE
          }

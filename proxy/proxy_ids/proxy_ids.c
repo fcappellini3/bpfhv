@@ -4,6 +4,12 @@
  */
 
 
+/*
+ * Uncomment the following line to enable the "scan by hash" feature (program 4)
+ */
+//#define SCAN_BY_HASH
+
+
 #define _GNU_SOURCE  // So stdio.h is correctly imported (ustats)
 #include <stdio.h>
 #include <stdlib.h>
@@ -125,12 +131,95 @@ struct ids_capture_protocol {
 static struct bpfhv_pkt global_bpfhv_pkt;
 
 // IDS rules
+#define PAYLOAD_0 { \
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, \
+        0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x02, 0x03, \
+        0x04, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, \
+        0x02, 0x03, 0x04, 0x00, 0x01, 0x02, 0x03, 0x04, \
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, \
+        0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x02, 0x03  \
+    }
+#define PAYLOAD_1 { \
+        0x10, 0x01, 0x02, 0x03, 0x14, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, \
+        0x01, 0x02, 0x03, 0x04, 0x10, 0x01, 0x02, 0x03, \
+        0x04, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, \
+        0x02, 0x03, 0x04, 0x00, 0x11, 0x02, 0x03, 0x04, \
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, \
+        0x11, 0x02, 0x03, 0x04, 0x10, 0x01, 0x02, 0x03  \
+    }
+#define PAYLOAD_2 { \
+        0x00, 0x21, 0x02, 0x03, 0x04, 0x00, 0x21, 0x02, \
+        0x03, 0x24, 0x00, 0x01, 0x02, 0x03, 0x24, 0x00, \
+        0x01, 0x22, 0x03, 0x04, 0x00, 0x01, 0x22, 0x03, \
+        0x04, 0x20, 0x01, 0x02, 0x03, 0x04, 0x20, 0x01, \
+        0x02, 0x23, 0x04, 0x00, 0x01, 0x02, 0x23, 0x04, \
+        0x00, 0x21, 0x02, 0x03, 0x04, 0x00, 0x21, 0x02, \
+        0x03, 0x24, 0x00, 0x01, 0x02, 0x03, 0x24, 0x00, \
+        0x01, 0x22, 0x03, 0x04, 0x00, 0x01, 0x22, 0x03  \
+    }
+#define PAYLOAD_3 { \
+        0x00, 0x01, 0x02, 0x33, 0x04, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x31, 0x02, 0x03, 0x04, 0x00, \
+        0x01, 0x02, 0x03, 0x34, 0x00, 0x01, 0x02, 0x03, \
+        0x04, 0x00, 0x01, 0x32, 0x03, 0x04, 0x00, 0x01, \
+        0x02, 0x03, 0x04, 0x30, 0x01, 0x02, 0x03, 0x04, \
+        0x00, 0x01, 0x02, 0x33, 0x04, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x31, 0x02, 0x03, 0x04, 0x00, \
+        0x01, 0x02, 0x03, 0x34, 0x00, 0x01, 0x02, 0x03  \
+    }
+#define PAYLOAD_4 { \
+        0x00, 0x41, 0x02, 0x33, 0x04, 0x00, 0x01, 0x42, \
+        0x03, 0x44, 0x00, 0x31, 0x02, 0x03, 0x04, 0x40, \
+        0x01, 0x42, 0x03, 0x34, 0x00, 0x01, 0x02, 0x43, \
+        0x04, 0x40, 0x01, 0x32, 0x03, 0x04, 0x00, 0x41, \
+        0x02, 0x43, 0x04, 0x30, 0x01, 0x02, 0x03, 0x44, \
+        0x00, 0x41, 0x02, 0x33, 0x04, 0x00, 0x01, 0x42, \
+        0x03, 0x44, 0x00, 0x31, 0x02, 0x03, 0x04, 0x40, \
+        0x01, 0x42, 0x03, 0x34, 0x00, 0x01, 0x02, 0x43  \
+    }
+#define PAYLOAD_5 { \
+        0x50, 0x01, 0x02, 0x33, 0x04, 0x00, 0x01, 0x02, \
+        0x53, 0x04, 0x00, 0x31, 0x02, 0x03, 0x04, 0x00, \
+        0x51, 0x02, 0x03, 0x34, 0x00, 0x01, 0x02, 0x03, \
+        0x04, 0x00, 0x01, 0x52, 0x03, 0x04, 0x00, 0x01, \
+        0x02, 0x03, 0x04, 0x50, 0x01, 0x02, 0x03, 0x04, \
+        0x00, 0x01, 0x02, 0x33, 0x54, 0x00, 0x01, 0x02, \
+        0x03, 0x04, 0x00, 0x31, 0x02, 0x53, 0x54, 0x50, \
+        0x01, 0x02, 0x03, 0x34, 0x00, 0x01, 0x02, 0x53  \
+    }
+
 struct ids_rules {
     uint32_t alarm_count;
     struct ids_alarm alarms[1];
     struct ids_capture_protocol cap_protos[1];
+    byte hash_buffer[512];
 };
 
+#ifdef SCAN_BY_HASH
+struct ids_rules ids_rules = {
+    .alarm_count = 1,
+    .alarms = {
+        {
+            .cap_prot_index = 0,
+            .payload_size = 64,
+            .payload = PAYLOAD_0,
+            .action = CAPTURE
+        }
+    },
+    .cap_protos = {
+        {
+            .payload_size = 7,
+            .ids_level = 9,
+            .payload = {'/', 'b', 'a', 'd', '_', 'e', 'p'},
+            .action = DROP_FLOW
+        }
+    }
+};
+#else
 struct ids_rules ids_rules = {
     .alarm_count = 1,
     .alarms = {
@@ -150,6 +239,7 @@ struct ids_rules ids_rules = {
         }
     }
 };
+#endif
 
 // Data structures for profiling
 #ifdef PROFILING
@@ -639,10 +729,185 @@ find(const byte* where, const uint32_t where_size, const byte* what, const uint3
  }
 
 
+#ifdef SCAN_BY_HASH
+
+/**
+ * Compute the 512 bit hash (64 bytes) of the payload of pkt.
+ * buffer: a buffer to store the result, has to have a lenght greater or equal to 64 bytes.
+ * return: a pointer to the computer hash
+ */
+static __inline byte*
+compute_hash(struct bpfhv_pkt* pkt, void* buffer) {
+    uint64_t* buff = (uint64_t*)buffer;
+    uint32_t steps = (pkt->payload_len / (sizeof(uint64_t))) >> 3;
+    uint64_t* ptr = (uint64_t*)pkt->payload;
+    uint32_t i;
+    byte magic_index;
+
+    // Initial state
+    buff[0] = 0x1122334455667788ULL;
+    buff[1] = 0x00DDEEFFAA112233ULL;
+    buff[2] = 0x0000000000000000ULL;
+    buff[3] = 0x1122334455667788ULL;
+    buff[4] = 0x1122334455667788ULL;
+    buff[5] = 0x0000000000000000ULL;
+    buff[6] = 0x00DDEEFFAA112233ULL;
+    buff[7] = 0x1122334455667788ULL;
+
+    // Hash calculation by byte blocks (1 byte block = 8 uint64_t = 64 bytes)
+    while(steps) {
+        if(steps & 0b1) {
+            for(i = 0; i < 8; ++i) {
+                buff[i] ^= ptr[i];
+            }
+        } else {
+            for(i = 0; i < 8; ++i) {
+                buff[7-i] ^= ~ptr[i];
+            }
+        }
+        magic_index = ((uint8_t*)buff)[steps & 0b111111] & 0b111111;   // [0;63]
+        magic_index = ((uint8_t*)buff)[magic_index] & 0b11111;         // [0;31]
+        ((uint16_t*)buff)[magic_index] ^= ((uint16_t*)buff)[31-magic_index];
+        ptr += 8;
+        --steps;
+    }
+
+    // Remaining bytes. They're less or equal to than 7 * 8 = 64 (7 copies of uint64_t, so 7 copies
+    // of groups of 8 bytes).
+    steps = (uint32_t)(
+        (uintptr_t)pkt->payload + (uintptr_t)pkt->payload_len - (uintptr_t)ptr
+    );
+    for(i = 0; i < steps; ++i) {
+        ((byte*)buff)[i % 64] ^= ((byte*)ptr)[i];
+    }
+
+    return (byte*)buff;
+}
+
+static __inline bool
+compare_hash(const byte* hash_a, const byte* hash_b) {
+    uint64_t* a = (uint64_t*)hash_a;
+    uint64_t* b = (uint64_t*)hash_b;
+    uint32_t i;
+
+    for(i = 0; i < 8; ++i, ++a, ++b) {
+        if(likely(*a != *b)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+#endif
+
+
 /**
  * Deep scan the packet
  * pkt: current struct bpfhv_pkt*. Assumed not to be NULL and to be a valid ip packet.
  */
+#ifdef SCAN_BY_HASH
+
+static __inline uint32_t
+__ids_deep_scan(struct bpfhv_pkt* pkt) {
+    uint32_t alarm_index;
+    uint32_t ret;
+    struct ids_capture_protocol* cap_prot;
+    struct flow_id flow_id;
+    struct tcphdr* tcp_header;
+    struct udphdr* udp_header;
+    struct flow* flow;
+
+    // Find packet payload and flow_id
+    struct iphdr* ip_header = pkt->ip_header;
+    if(ip_header->version != 4) {
+        return IDS_PASS;
+    }
+    flow_id.src_ip = ip_header->saddr;
+    flow_id.dest_ip = ip_header->daddr;
+    flow_id.protocol = ip_header->protocol;
+    switch(ip_header->protocol) {
+        case IPPROTO_UDP:
+            udp_header = pkt->udp_header;
+            flow_id.src_port = udp_header->source;
+            flow_id.dest_port = udp_header->dest;
+            break;
+        case IPPROTO_TCP:
+            tcp_header = pkt->tcp_header;
+            flow_id.src_port = tcp_header->source;
+            flow_id.dest_port = tcp_header->dest;
+            break;
+        default:
+            return IDS_PASS;
+    }
+    if(!pkt->payload) {
+       print_debug(4);
+       return IDS_INVALID_PKT(4);
+   }
+
+    // Check if a flow already exists. If it exists we don't have to check for a matching payload,
+    // but if there is no flow, we have to search for a matching payload (and maybe start a new
+    // flow in case we found one).
+    flow = get_flow(&flow_id);
+    if(flow) {
+        goto a_flow_exists;
+    } else {
+        // Compute hash
+        compute_hash(pkt, &(ids_rules.hash_buffer[0]));
+
+        // Scan for a matching hash
+        for(alarm_index = 0; alarm_index < ids_rules.alarm_count; ++alarm_index) {
+            struct ids_alarm* alarm = &ids_rules.alarms[alarm_index];
+            if(unlikely(compare_hash(&(ids_rules.hash_buffer[0]), alarm->payload))) {
+                // The current pkt matched an alarm
+                print_always("Found alarm_index %d\n", alarm_index);
+
+                // If alarm->action is DROP, the packet must be immediatel dropped!
+                if(alarm->action == DROP) {
+                    return IDS_LEVEL(10);
+                }
+
+                // Otherwise, let's chek for the capture protocol and procede to create a new flow
+                cap_prot = &ids_rules.cap_protos[alarm->cap_prot_index];
+                flow = create_flow(&flow_id, true, DEFAULT_FLOW_SIZE);
+                if(!flow) {
+                    return IDS_LEVEL(10);
+                }
+                flow->reserved_bpf = cap_prot;
+                goto a_flow_exists;
+            }
+        }
+
+        // If no payloads were found and no flows were found, this packet is legit
+        return IDS_PASS;
+    }
+
+    a_flow_exists:
+    // If I'm here a flow exists (because it was just created or because it was already existing).
+    // If the packet len is greater than 0 the packet must be stored.
+    if(pkt->payload_len) {
+        store_pkt(flow, pkt->payload, pkt->payload_len);
+    }
+
+    // The flow has to be cheked now
+    cap_prot = (struct ids_capture_protocol*)flow->reserved_bpf;
+    if(__check_flow(flow, cap_prot)) {
+        ret = IDS_LEVEL(cap_prot->ids_level);
+    } else {
+        ret = IDS_PASS;
+    }
+
+    // If the protocol is TCP and we have a TCP FIN, the current flow must be terminated and
+    // deallocated to free memory.
+    if(flow->flow_id.protocol == IPPROTO_TCP && pkt->tcp_header->fin) {
+        delete_flow(&flow->flow_id);
+    }
+
+    return ret;
+}
+
+#else
+
 static inline uint32_t
 __ids_deep_scan(struct bpfhv_pkt* pkt) {
     uint32_t alarm_index;
@@ -740,6 +1005,8 @@ __ids_deep_scan(struct bpfhv_pkt* pkt) {
 
     return ret;
   }
+
+#endif
 
 static inline uint32_t
 __auto_rules_tcp(struct bpfhv_pkt* pkt) {
