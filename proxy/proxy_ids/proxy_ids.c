@@ -226,7 +226,7 @@ struct ids_rules ids_rules = {
         {
             .cap_prot_index = 0,
             .payload_size = 5,
-            .payload = {'H', 'T', 'T', 'P', '/'},
+            .payload = {'X', 'T', 'T', 'P', '/'},
             .action = CAPTURE
         }
     },
