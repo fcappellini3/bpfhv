@@ -150,6 +150,11 @@ def main():
         BACKEND = "netmap"
 
     signal.signal(signal.SIGINT, __signal_handler)
+
+    if "--destroy" in sys.argv:
+        __fini_interfaces()
+        return
+    
     __init_interfaces()
     __run_backend_process(other_args)
     __fini_interfaces()
