@@ -268,7 +268,7 @@ iter_skip_sequential_group(struct flow_iter* iter) {
     if(_unlikely(!iter->current_flow_elem))
         return 0;
 
-    if((_unlikely(!iter->current_flow_elem->next))
+    if((_unlikely(!iter->current_flow_elem->next)))
         return NULL;
 
     iter->current_flow_elem = iter->current_flow_elem->next;

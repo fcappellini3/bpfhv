@@ -35,6 +35,8 @@
 #include "bpfhv_kprobes.h"
 #include "bpfhv_pkt.h"
 #include "log.h"
+#include "trampoline_registry.h"
+#include "trashbin.h"
 
 
 #ifdef PROFILING
@@ -60,6 +62,14 @@ MODULE_PARM_DESC(gso, "Enable generic segmentation offload");
 static bool tx_napi = false;
 module_param(tx_napi, bool, /* perm = allow override on modprobe */0);
 MODULE_PARM_DESC(tx_napi, "Use NAPI for TX completion");
+
+DECLARE_TRASHBIN(delete_on_fini, 1024, kfree);
+
+struct emulate_call_disp_args {
+	struct bpfhv_info* bi;  // Reference to the program owner
+	struct bpf_insn ins;    // Copy of the BPF instruction to emulate
+	uint32_t ins_index;     // Index of the instruction in the program
+};
 
 #ifdef PROFILING
 static struct kstats* kstats;
@@ -1417,91 +1427,156 @@ out:
 	return ret;
 }
 
+/**
+ * BPF programs can have call-pc-displacement instructions, but Linux's JIT compiler does not
+ * support them. In Linux this is solved by means of 2 techniques. In BPFHV this is solved using
+ * "emulation".
+ */
+static uint64_t
+emulate_call_displacement(
+	uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4,
+	struct emulate_call_disp_args* emul_args
+) {
+	printk(KERN_ERR "Not yet implemented!\n");
+	return 0;
+}
+
+/**
+ * BPFHV emulation fallback. Called when it is not possible to emulate something.
+ */
+/*static uint64_t
+emulate_fallback(void) {
+	printk(KERN_ERR "emulate_fallback() called. Something went really wrong :(\n");
+	return 0;
+}*/
+
 static int
-bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns,
-			size_t insns_count)
-{
+bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns, size_t insns_count) {
 	size_t i;
 
 	for (i = 0; i < insns_count; i++, insns++) {
 		u64 (*func)(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
-		if (!(insns->code == (BPF_JMP | BPF_CALL) &&
-			insns->dst_reg == 0 && insns->src_reg == 0 &&
-				insns->off == 0)) {
-			/* This is not an instruction that calls to
-			 * an helper function. */
-			continue;
-		}
+		if(
+			insns->code == (BPF_JMP | BPF_CALL) && insns->dst_reg == 0 &&
+			insns->src_reg == 0 && insns->off == 0
+		) {
+			// This is a call with immediate (fixed address). So this is a "BPFHV call to helper
+			// function". We have to change the insns->imm field to trick the Linux BPF JIT compiler
+			// to emit a real platform-specific call to the correct helper function.
+			switch (insns->imm) {
+			case BPFHV_FUNC_rx_pkt_alloc:
+				func = bpf_hv_rx_pkt_alloc;
+				break;
+			case BPFHV_FUNC_pkt_l4_csum_md_get:
+				func = bpf_hv_pkt_l4_csum_md_get;
+				break;
+			case BPFHV_FUNC_pkt_l4_csum_md_set:
+				func = bpf_hv_pkt_l4_csum_md_set;
+				break;
+			case BPFHV_FUNC_pkt_virtio_net_md_get:
+				func = bpf_hv_pkt_virtio_net_md_get;
+				break;
+			case BPFHV_FUNC_pkt_virtio_net_md_set:
+				func = bpf_hv_pkt_virtio_net_md_set;
+				break;
+			case BPFHV_FUNC_rx_buf_dma_map:
+				func = bpf_hv_rx_buf_dma_map;
+				break;
+			case BPFHV_FUNC_rx_buf_dma_unmap:
+				func = bpf_hv_rx_buf_dma_unmap;
+				break;
+			case BPFHV_FUNC_tx_buf_dma_map:
+				func = bpf_hv_tx_buf_dma_map;
+				break;
+			case BPFHV_FUNC_tx_buf_dma_unmap:
+				func = bpf_hv_tx_buf_dma_unmap;
+				break;
+			case BPFHV_FUNC_smp_mb_full:
+				func = bpf_hv_smp_mb_full;
+				break;
+			case BPFHV_FUNC_print_num:
+				func = bpf_hv_print_num;
+				break;
+			case BPFHV_FUNC_get_bpfhv_pkt:
+				func = bpf_hv_get_bpfhv_pkt;
+				break;
+			case BPFHV_FUNC_get_shared_memory:
+				func = bpf_hv_get_shared_memory;
+				break;
+			case BPFHV_FUNC_get_flow:
+				func = bpf_hv_get_flow;
+				break;
+			case BPFHV_FUNC_create_flow:
+				func = bpf_hv_create_flow;
+				break;
+			case BPFHV_FUNC_delete_flow:
+				func = bpf_hv_delete_flow;
+				break;
+			case BPFHV_FUNC_store_pkt:
+				func = bpf_hv_store_pkt;
+				break;
+			case BPFHV_FUNC_send_hypervisor_signal:
+				func = bpf_hv_send_hypervisor_signal;
+				break;
+			case BPFHV_FUNC_find:
+				func = bpf_hv_find;
+				break;
+			case BPFHV_FUNC_find_multi:
+				func = bpf_hv_find_multi;
+				break;
+			default:
+				netif_err(bi, drv, bi->netdev, "Uknown helper function id %08x\n", insns->imm);
+				return -EINVAL;
+				break;
+			}
+			insns->imm = func - __bpf_call_base;
+		} else if (
+			insns->code == (BPF_JMP | BPF_CALL) && insns->dst_reg == 0 &&
+			insns->src_reg == 1 && insns->off == 0
+		) {
+			// This is a BPF call pc-displacement. This kind of call is not supported by the Linux's
+			// JIT compiler and must be changed with an equivalent call to helper function
+			struct emulate_call_disp_args* args = kmalloc(
+				sizeof(struct emulate_call_disp_args), GFP_KERNEL
+			);
 
-		switch (insns->imm) {
-		case BPFHV_FUNC_rx_pkt_alloc:
-			func = bpf_hv_rx_pkt_alloc;
-			break;
-		case BPFHV_FUNC_pkt_l4_csum_md_get:
-			func = bpf_hv_pkt_l4_csum_md_get;
-			break;
-		case BPFHV_FUNC_pkt_l4_csum_md_set:
-			func = bpf_hv_pkt_l4_csum_md_set;
-			break;
-		case BPFHV_FUNC_pkt_virtio_net_md_get:
-			func = bpf_hv_pkt_virtio_net_md_get;
-			break;
-		case BPFHV_FUNC_pkt_virtio_net_md_set:
-			func = bpf_hv_pkt_virtio_net_md_set;
-			break;
-		case BPFHV_FUNC_rx_buf_dma_map:
-			func = bpf_hv_rx_buf_dma_map;
-			break;
-		case BPFHV_FUNC_rx_buf_dma_unmap:
-			func = bpf_hv_rx_buf_dma_unmap;
-			break;
-		case BPFHV_FUNC_tx_buf_dma_map:
-			func = bpf_hv_tx_buf_dma_map;
-			break;
-		case BPFHV_FUNC_tx_buf_dma_unmap:
-			func = bpf_hv_tx_buf_dma_unmap;
-			break;
-		case BPFHV_FUNC_smp_mb_full:
-			func = bpf_hv_smp_mb_full;
-			break;
-		case BPFHV_FUNC_print_num:
-			func = bpf_hv_print_num;
-			break;
-		case BPFHV_FUNC_get_bpfhv_pkt:
-			func = bpf_hv_get_bpfhv_pkt;
-			break;
-		case BPFHV_FUNC_get_shared_memory:
-			func = bpf_hv_get_shared_memory;
-			break;
-		case BPFHV_FUNC_get_flow:
-			func = bpf_hv_get_flow;
-			break;
-		case BPFHV_FUNC_create_flow:
-			func = bpf_hv_create_flow;
-			break;
-		case BPFHV_FUNC_delete_flow:
-			func = bpf_hv_delete_flow;
-			break;
-		case BPFHV_FUNC_store_pkt:
-			func = bpf_hv_store_pkt;
-			break;
-		case BPFHV_FUNC_send_hypervisor_signal:
-			func = bpf_hv_send_hypervisor_signal;
-			break;
-		case BPFHV_FUNC_find:
-			func = bpf_hv_find;
-			break;
-		case BPFHV_FUNC_find_multi:
-			func = bpf_hv_find_multi;
-			break;
-		default:
-			netif_err(bi, drv, bi->netdev,
-				"Uknown helper function id %08x\n", insns->imm);
-			return -EINVAL;
-			break;
+			if(unlikely(!args)) {
+				printk(KERN_ERR "%s() -> Out of memory\n", __PRETTY_FUNCTION__);
+				return -ENOMEM;
+			}
+
+			if(unlikely(!add_to_trashbin(&delete_on_fini, args))) {
+				printk(
+					KERN_ERR "%s() -> Impossible to add args to the trashbin! Maybe it's full?\n",
+					__PRETTY_FUNCTION__
+				);
+				kfree(args);
+				return -ENOMEM;
+			}
+			args->bi = bi;
+			args->ins = *insns;
+			args->ins_index = i;
+
+			func = new_trampoline_for((trampoline_target_t)emulate_call_displacement, (uint64_t)args);
+			if(unlikely(!func)) {
+				printk(KERN_ERR "%s() -> Failed to require a new trampoline!\n", __PRETTY_FUNCTION__);
+				return -ENOMEM;
+			}
+
+			insns->src_reg = 0;
+			insns->imm = func - __bpf_call_base;
+			//insns->imm = (uintptr_t)emulate_call_displacement - (uintptr_t)__bpf_call_base;
+
+			printk(
+				KERN_ERR "Trampoline for ins %ld at address %llx\n"
+				"  While __bpf_call_base is %llx -> Computed distance: %llx, neg? %d, "
+				"Real distance -> %llx\n  Object in data: %llx\n",
+				i, (uint64_t)func, (uint64_t)__bpf_call_base, (uint64_t)insns->imm,
+				((uintptr_t)func < (uint64_t)__bpf_call_base),
+				(uint64_t)func - (uint64_t)__bpf_call_base, (uint64_t)&delete_on_fini
+			);
 		}
-		insns->imm = func - __bpf_call_base;
 	}
 
 	return 0;
@@ -2400,6 +2475,7 @@ bpfhv_init(void)
 	}
 	#endif
 
+	trampoline_registry_ini();
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
 	ebpf_mem_ini();
 	ids_flow_ini();
@@ -2416,6 +2492,8 @@ bpfhv_fini(void)
 		kfree(bpfhv_pkt);
 	ebpf_mem_fini();
 	ids_flow_fini();
+	trampoline_registry_fini();
+	empty_trashbin(&delete_on_fini);
 
 	#ifdef PROFILING
 	kstats_delete(kstats);

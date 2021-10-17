@@ -1,3 +1,8 @@
+/**
+ * Definition and utility functions for BPFHV memory system
+ */
+
+
 #ifndef __BPFHV_EBPF_MEMORY_H__
 #define __BPFHV_EBPF_MEMORY_H__
 

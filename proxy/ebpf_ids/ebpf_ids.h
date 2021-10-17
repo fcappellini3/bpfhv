@@ -23,26 +23,8 @@
 #endif
 
 
+static void check_flow(struct flow* flow);
 
-/**
- * Check a flow w.r.t. its own struct ids_capture_protocol.
- * Send a signal to the hypervisor in case of a match.
- * Reset bytes_stored_from_last_check.
- */
-static __inline void
-check_flow(struct flow* flow) {
-    if(unlikely(__check_flow(flow, get_reserved_bpf(flow)->cap_prot))) {
-        char str[32];
-        str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='h'; str[7]='e'; str[8]='c'; str[9]='k'; str[10]=' '; str[11]='r'; str[12]='e'; str[13]='s'; str[14]='u'; str[15]='l'; str[16]='t'; str[17]=0;
-        print_num(str, IDS_LEVEL(get_reserved_bpf(flow)->cap_prot->ids_level));
-        send_hypervisor_signal(
-            flow->owner_bpfhv_info,
-            0,
-            IDS_LEVEL(get_reserved_bpf(flow)->cap_prot->ids_level)
-        );
-    }
-    get_reserved_bpf(flow)->bytes_stored_from_last_check = 0;
-}
 
 /**
  * Apply IDS IP rules. This function must be called by ids_analyze_eth_pkt only.
@@ -253,6 +235,27 @@ socket_read_handler(struct srd_handler_arg* arg) {
     check_flow(arg->flow);
 
     return stored_size;
+}
+
+/**
+ * Check a flow w.r.t. its own struct ids_capture_protocol.
+ * Send a signal to the hypervisor in case of a match.
+ * Reset bytes_stored_from_last_check.
+ */
+__section("srd")
+static void
+check_flow(struct flow* flow) {
+    if(unlikely(__check_flow(flow, get_reserved_bpf(flow)->cap_prot))) {
+        char str[32];
+        str[0]='F'; str[1]='l'; str[2]='o'; str[3]='w'; str[4]=' '; str[5]='c'; str[6]='h'; str[7]='e'; str[8]='c'; str[9]='k'; str[10]=' '; str[11]='r'; str[12]='e'; str[13]='s'; str[14]='u'; str[15]='l'; str[16]='t'; str[17]=0;
+        print_num(str, IDS_LEVEL(get_reserved_bpf(flow)->cap_prot->ids_level));
+        send_hypervisor_signal(
+            flow->owner_bpfhv_info,
+            0,
+            IDS_LEVEL(get_reserved_bpf(flow)->cap_prot->ids_level)
+        );
+    }
+    get_reserved_bpf(flow)->bytes_stored_from_last_check = 0;
 }
 
 #endif
