@@ -12,6 +12,7 @@
 
 // Macros
 #define get_reserved_bpf(flow) ((struct reserved_bpf*)((flow)->reserved_bpf))
+#define bpf2bpf_check_flow(A) bpf2bpf_call(BPFHV_PROG_EXTRA_0, (const void*)(A));
 
 // Other includes
 #include "examples/basic_pdt.h"
@@ -23,7 +24,7 @@
 #endif
 
 
-static void check_flow(struct flow* flow);
+//static void check_flow(struct flow* flow);
 
 
 /**
@@ -226,13 +227,13 @@ socket_read_handler(struct srd_handler_arg* arg) {
 
             // If enough bytes are stored perform a check
             if(get_reserved_bpf(arg->flow)->bytes_stored_from_last_check >= MAX_STORE_SIZE) {
-                check_flow(arg->flow);
+                bpf2bpf_check_flow(arg->flow);
             }
         }
     }
 
     // Perform flow checking at the end independently of bytes_stored_from_last_check
-    check_flow(arg->flow);
+    bpf2bpf_check_flow(arg->flow);
 
     return stored_size;
 }
@@ -242,7 +243,7 @@ socket_read_handler(struct srd_handler_arg* arg) {
  * Send a signal to the hypervisor in case of a match.
  * Reset bytes_stored_from_last_check.
  */
-__section("srd")
+__section("extra0")
 static void
 check_flow(struct flow* flow) {
     if(unlikely(__check_flow(flow, get_reserved_bpf(flow)->cap_prot))) {

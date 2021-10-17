@@ -1034,6 +1034,27 @@ BPF_CALL_3(bpf_hv_store_pkt, struct flow*, flow, void*, buff, const uint32_t, le
 	return (uintptr_t)store_pkt(flow, buff, len);
 }
 
+static uint64_t
+bpf_hv_bpf2bpf_call(
+	uint64_t prog_index, const void* call_arg, uint64_t arg2_no_use, uint64_t arg3_no_use,
+	uint64_t arg4_no_use, struct bpfhv_info* bi
+) {
+	if(unlikely(prog_index == BPFHV_PROG_NONE || prog_index >= BPFHV_PROG_PROG_DATA)) {
+		printk(KERN_ERR "%s() -> Invalid prog_index %lld\n", __PRETTY_FUNCTION__, prog_index);
+		return 0;
+	}
+
+	if(unlikely(!bi->progs[prog_index])) {
+		printk(
+			KERN_ERR "%s() -> prog_index valid (%lld), but no program found for that index\n",
+			__PRETTY_FUNCTION__, prog_index
+		);
+		return 0;
+	}
+
+	return BPF_PROG_RUN(bi->progs[prog_index], call_arg);
+}
+
 /**
  * Find "what" inside "where"
  * return: index of "what" inside "where" or NOT_FOUND if not found
@@ -1546,6 +1567,18 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns, size_t i
 				break;
 			case BPFHV_FUNC_find_multi:
 				func = bpf_hv_find_multi;
+				break;
+			case BPFHV_FUNC_bpf2bpf_call:
+				func = new_trampoline_for(
+					(trampoline_target_t)bpf_hv_bpf2bpf_call, (uint64_t)bi
+				);
+				if(unlikely(!func)) {
+					printk(
+						KERN_ERR "%s() -> Failed to require a new trampoline!\n",
+						__PRETTY_FUNCTION__
+					);
+					return -ENOMEM;
+				}
 				break;
 			default:
 				netif_err(bi, drv, bi->netdev, "Uknown helper function id %08x\n", insns->imm);
@@ -2499,6 +2532,10 @@ bpfhv_init(void)
 
 	trampoline_registry_ini();
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
+	if(unlikely(!bpfhv_pkt)) {
+		printk(KERN_ERR "Unable to allocate bpfhv_pkt, out of memory?\n");
+		return -ENOMEM;
+	}
 	ids_flow_ini();
 	bpfhv_kprobes_ini();
 	return pci_register_driver(&bpfhv_driver);

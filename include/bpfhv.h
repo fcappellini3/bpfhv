@@ -137,15 +137,16 @@ enum bpfhv_helper_id {
 	BPFHV_FUNC_tx_buf_dma_unmap,
 	BPFHV_FUNC_smp_mb_full,
 	BPFHV_FUNC_print_num,
-	BPFHV_FUNC_get_bpfhv_pkt,          // added for IDS
-	BPFHV_FUNC_get_shared_memory,      // added for IDS
-	BPFHV_FUNC_get_flow,               // added for IDS
-	BPFHV_FUNC_create_flow,            // added for IDS
-	BPFHV_FUNC_delete_flow,            // added for IDS
-	BPFHV_FUNC_store_pkt,              // added for IDS
-	BPFHV_FUNC_send_hypervisor_signal, // added for IDS
-	BPFHV_FUNC_find,                   // added for IDS
-	BPFHV_FUNC_find_multi              // added for IDS
+	BPFHV_FUNC_get_bpfhv_pkt,          // added during IDS creation
+	BPFHV_FUNC_get_shared_memory,      // added during IDS creation
+	BPFHV_FUNC_get_flow,               // added during IDS creation
+	BPFHV_FUNC_create_flow,            // added during IDS creation
+	BPFHV_FUNC_delete_flow,            // added during IDS creation
+	BPFHV_FUNC_store_pkt,              // added during IDS creation
+	BPFHV_FUNC_send_hypervisor_signal, // added during IDS creation
+	BPFHV_FUNC_find,                   // added during IDS creation
+	BPFHV_FUNC_find_multi,             // added during IDS creation
+	BPFHV_FUNC_bpf2bpf_call            // added during IDS creation
 };
 
 #ifndef BPFHV_FUNC
