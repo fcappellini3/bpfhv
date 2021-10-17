@@ -30,7 +30,7 @@
 
 #include "bpfhv.h"
 #include "bpfhv_progs_registry.h"
-#include "bpfhv_ebpf_memory.h"
+#include "bpfhv_memory.h"
 #include "bpfhv_ids_flow.h"
 #include "bpfhv_kprobes.h"
 #include "bpfhv_pkt.h"
@@ -124,6 +124,8 @@ struct bpfhv_info {
 	/* True if we failed to upgrade the program from the hypervisor.
 	 * This situation renders the device unusable. */
 	bool				broken;
+
+	struct bpfhv_shared_mem_des shared_mem;
 };
 
 struct bpfhv_rxq {
@@ -989,9 +991,11 @@ BPF_CALL_2(bpf_hv_get_bpfhv_pkt, struct bpfhv_rx_context *, ctx, const uint32_t,
 	return ret;
 }
 
-BPF_CALL_0(bpf_hv_get_shared_memory)
-{
-	return (uintptr_t)get_shared_mem();
+static uint64_t
+bpf_hv_get_shared_memory(
+	uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, struct bpfhv_info* bi
+) {
+	return (uint64_t)bi->shared_mem.buffer;
 }
 
 BPF_CALL_1(bpf_hv_get_flow, struct flow_id*, flow_id)
@@ -1363,20 +1367,29 @@ bpfhv_programs_setup(struct bpfhv_info *bi)
 
 	/* Read prog_data from the hypervisor. */
 	{
-		uint32_t* ptr = (uint32_t*)get_shared_mem();
+		uint32_t* ptr;
 		size_t data_len, j, jmax;
 
-		if(unlikely(!ptr)) {
+		// Allocate shared memory
+		if(unlikely(!bpfhv_shared_mem_des_default_alloc(&bi->shared_mem))){
+			ret = -ENOMEM;
 			netif_err(
 				bi, drv, bi->netdev,
-				"bpfhv_programs_setup(...) -> get_shared_mem() returned 0 (Out of memory?)\n"
+				"bpfhv_programs_setup(...) -> bpfhv_shared_mem_des_default_alloc() failed (Out of memory?)\n"
 			);
 			goto out;
 		}
+
+		// Add shared memory to the trashbin so its deallocation is sheduled when the module
+		// finalizer is called
+		bpfhv_shared_mem_des_add_to_trashbin(&bi->shared_mem, &delete_on_fini);
+
+		ptr = (uint32_t*)bi->shared_mem.buffer;
+
 		writel(BPFHV_PROG_PROG_DATA, bi->regaddr + BPFHV_REG_PROG_SELECT);
 		data_len = readl(bi->regaddr + BPFHV_REG_PROG_SIZE);
 		data_len *= sizeof(struct bpf_insn);
-		if(unlikely(data_len == 0 || data_len > SHARED_MEMORY_SIZE)) {
+		if(unlikely(data_len == 0 || data_len > bi->shared_mem.size)) {
 			printk(KERN_ERR "BPFHV_PROG_PROG_DATA not available!\n");
 		} else {
 			jmax = data_len / sizeof(*ptr);
@@ -1502,7 +1515,16 @@ bpfhv_helper_calls_fixup(struct bpfhv_info *bi, struct bpf_insn *insns, size_t i
 				func = bpf_hv_get_bpfhv_pkt;
 				break;
 			case BPFHV_FUNC_get_shared_memory:
-				func = bpf_hv_get_shared_memory;
+				func = new_trampoline_for(
+					(trampoline_target_t)bpf_hv_get_shared_memory, (uint64_t)bi
+				);
+				if(unlikely(!func)) {
+					printk(
+						KERN_ERR "%s() -> Failed to require a new trampoline!\n",
+						__PRETTY_FUNCTION__
+					);
+					return -ENOMEM;
+				}
 				break;
 			case BPFHV_FUNC_get_flow:
 				func = bpf_hv_get_flow;
@@ -2477,7 +2499,6 @@ bpfhv_init(void)
 
 	trampoline_registry_ini();
 	bpfhv_pkt = kmalloc(sizeof(*bpfhv_pkt), GFP_KERNEL);
-	ebpf_mem_ini();
 	ids_flow_ini();
 	bpfhv_kprobes_ini();
 	return pci_register_driver(&bpfhv_driver);
@@ -2490,7 +2511,6 @@ bpfhv_fini(void)
 	bpfhv_kprobes_fini();
 	if(bpfhv_pkt)
 		kfree(bpfhv_pkt);
-	ebpf_mem_fini();
 	ids_flow_fini();
 	trampoline_registry_fini();
 	empty_trashbin(&delete_on_fini);
